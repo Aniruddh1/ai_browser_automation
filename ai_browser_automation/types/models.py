@@ -134,6 +134,7 @@ class ConstructorParams(BaseModel):
     model_name: str = "gpt-4o"
     model_client_options: Optional[Dict[str, Any]] = None
     experimental_features: bool = False
+    dom_settle_timeout_ms: int = 10000  # Default to 10 seconds, matching TypeScript
 
 
 class AccessibilityNode(BaseModel):

@@ -81,6 +81,20 @@ window.getScrollableElements = function(topN) {
     return scrollableElements;
 };
 
+// Get scrollable element XPaths - matches TypeScript getScrollableElementXpaths
+window.getScrollableElementXpaths = async function(topN) {
+    const scrollableElems = window.getScrollableElements(topN);
+    const xpaths = [];
+    
+    for (const elem of scrollableElems) {
+        const allXPaths = await window.generateXPathsForElement(elem);
+        const firstXPath = allXPaths?.[0] || "";
+        xpaths.push(firstXPath);
+    }
+    
+    return xpaths;
+};
+
 // Wait for element scroll to end
 window.waitForElementScrollEnd = function(element, idleMs = 100) {
     return new Promise((resolve) => {
@@ -99,7 +113,7 @@ window.waitForElementScrollEnd = function(element, idleMs = 100) {
     });
 };
 
-// Generate XPath for element
+// Generate XPath for element - matches TypeScript implementation
 window.generateXPath = function(element) {
     if (!element) return '';
     
@@ -118,6 +132,166 @@ window.generateXPath = function(element) {
     const parentXPath = element.parentNode ? window.generateXPath(element.parentNode) : '';
     
     return `${parentXPath}/${tagName}[${nodeIndex}]`;
+};
+
+// Generate XPaths for element - matches TypeScript generateXPathsForElement
+window.generateXPathsForElement = async function(element) {
+    if (!element) return [];
+    
+    const [complexXPath, standardXPath, idBasedXPath] = await Promise.all([
+        generateComplexXPath(element),
+        generateStandardXPath(element),
+        generateIdBasedXPath(element)
+    ]);
+    
+    // Return in order from most accurate to most cacheable
+    const xpaths = [standardXPath];
+    if (idBasedXPath) {
+        xpaths.push(idBasedXPath);
+    }
+    xpaths.push(complexXPath);
+    
+    return xpaths;
+};
+
+// Generate complex XPath with attribute combinations
+window.generateComplexXPath = async function(element) {
+    const tagName = element.tagName.toLowerCase();
+    
+    // List of attributes to consider for uniqueness
+    const attributePriority = [
+        "data-qa",
+        "data-component",
+        "data-role",
+        "role",
+        "aria-role",
+        "type",
+        "name",
+        "aria-label",
+        "placeholder",
+        "title",
+        "alt"
+    ];
+    
+    // Collect attributes present on the element
+    const attributes = [];
+    for (const attr of attributePriority) {
+        const value = element.getAttribute(attr);
+        if (value) {
+            attributes.push({ attr, value });
+        }
+    }
+    
+    // Try to find unique selector
+    let uniqueSelector = "";
+    
+    // Helper to escape XPath strings
+    const escapeXPathString = (value) => {
+        if (value.includes("'")) {
+            if (value.includes('"')) {
+                // Contains both quotes - use concat
+                return "concat(" + value.split(/('+)/).map(part => {
+                    if (part === "'") return '"\\'"\';
+                    else if (part.startsWith("'") && part.endsWith("'")) return `"${part}"`;
+                    else return `'${part}'`;
+                }).join(",") + ")";
+            } else {
+                return `"${value}"`;
+            }
+        } else {
+            return `'${value}'`;
+        }
+    };
+    
+    // Try combinations of attributes
+    for (let i = 1; i <= attributes.length; i++) {
+        const combos = getCombinations(attributes, i);
+        for (const combo of combos) {
+            const conditions = combo.map(a => `@${a.attr}=${escapeXPathString(a.value)}`).join(" and ");
+            const xpath = `//${tagName}[${conditions}]`;
+            
+            // Check if unique
+            try {
+                const result = document.evaluate(xpath, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+                if (result.snapshotLength === 1 && result.snapshotItem(0) === element) {
+                    uniqueSelector = xpath;
+                    break;
+                }
+            } catch (e) {
+                // Invalid XPath, continue
+            }
+        }
+        if (uniqueSelector) break;
+    }
+    
+    if (uniqueSelector) {
+        return uniqueSelector.replace('//', '');
+    }
+    
+    // Fallback to positional
+    return generateStandardXPath(element);
+};
+
+// Generate standard positional XPath
+window.generateStandardXPath = async function(element) {
+    const parts = [];
+    let current = element;
+    
+    while (current && (current.nodeType === 1 || current.nodeType === 3)) {
+        let index = 0;
+        let hasSameTypeSiblings = false;
+        const siblings = current.parentElement ? Array.from(current.parentElement.childNodes) : [];
+        
+        for (let i = 0; i < siblings.length; i++) {
+            const sibling = siblings[i];
+            if (sibling.nodeType === current.nodeType && sibling.nodeName === current.nodeName) {
+                index++;
+                hasSameTypeSiblings = true;
+                if (sibling === current) {
+                    break;
+                }
+            }
+        }
+        
+        // Text nodes are selected differently
+        if (current.nodeName !== '#text') {
+            const tagName = current.nodeName.toLowerCase();
+            const pathIndex = hasSameTypeSiblings ? `[${index}]` : '';
+            parts.unshift(`${tagName}${pathIndex}`);
+        }
+        
+        current = current.parentElement;
+    }
+    
+    return parts.length ? `/${parts.join('/')}` : '';
+};
+
+// Generate ID-based XPath
+window.generateIdBasedXPath = async function(element) {
+    if (element.id) {
+        return `//*[@id='${element.id}']`;
+    }
+    return null;
+};
+
+// Helper to get combinations
+window.getCombinations = function(arr, size) {
+    const results = [];
+    
+    function helper(start, combo) {
+        if (combo.length === size) {
+            results.push([...combo]);
+            return;
+        }
+        for (let i = start; i < arr.length; i++) {
+            combo.push(arr[i]);
+            helper(i + 1, combo);
+            combo.pop();
+        }
+    }
+    
+    helper(0, []);
+    return results;
 };
 
 // Enhanced element detection for complex sites

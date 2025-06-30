@@ -79,6 +79,11 @@ class BaseHandler(ABC, Generic[T]):
         handler_name = self.__class__.__name__
         self.logger.info(f"handler:{handler_name}", message, **kwargs)
     
+    def _log_warning(self, message: str, **kwargs: Any) -> None:
+        """Log warning message with handler context."""
+        handler_name = self.__class__.__name__
+        self.logger.warn(f"handler:{handler_name}", message, **kwargs)
+    
     def _log_error(self, message: str, **kwargs: Any) -> None:
         """Log error message with handler context."""
         handler_name = self.__class__.__name__

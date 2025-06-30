@@ -84,12 +84,12 @@ class BaseCache:
     
     def _log_warning(self, message: str, **kwargs: Any) -> None:
         """Log warning message, handling both logger types."""
-        if hasattr(self.logger, 'warning') and len(inspect.signature(self.logger.warning).parameters) > 1:
+        if hasattr(self.logger, 'warn') and len(inspect.signature(self.logger.warn).parameters) > 1:
             # AIBrowserAutomationLogger
             if kwargs:
-                self.logger.warning("cache", message, **kwargs)
+                self.logger.warn("cache", message, **kwargs)
             else:
-                self.logger.warning("cache", message)
+                self.logger.warn("cache", message)
         else:
             # Standard Python logger
             self.logger.warning(f"{message}: {kwargs}" if kwargs else message)

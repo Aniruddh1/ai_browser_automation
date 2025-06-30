@@ -16,7 +16,7 @@ from ..dom.xpath import (
     escape_xpath_string,
     XPATH_GENERATION_SCRIPT
 )
-from ..cdp import cdp_manager, FrameChainResolver
+from ..cdp import cdp_manager
 
 
 class AccessibilityTreeBuilder:
@@ -501,13 +501,8 @@ class AccessibilityTreeBuilder:
             xpath_map = {}
             element_info_map = {}
             
-            # Get the full DOM tree for this frame using CDP manager
-            dom_response = await cdp_manager.execute(
-                session,
-                "DOM.getDocument",
-                {"depth": -1},
-                batch=False  # Don't batch this call
-            )
+            # Get the full DOM tree for this frame
+            dom_response = await session.send("DOM.getDocument", {"depth": -1})
             root = dom_response.get("root", {})
             
             # Use the same traverse_node logic but with frame session

@@ -7,11 +7,11 @@ from pydantic import ValidationError
 
 from .base import BaseHandler
 from ..types import ObserveResult, ObserveOptions, EncodedId, LLMMessage
-from ..types.observe import ObserveElementSchema, ObserveResponseSchema, ActObserveResponseSchema
-from ..dom import get_clickable_elements, get_input_elements, get_page_text, clean_text
-from ..dom.scrollable import mark_scrollable_in_tree
+from ..types.observe import ObserveElementSchema, ObserveResponseSchema, ActObserveElementSchema
+from ..dom import clean_text
 from ..dom.debug import draw_element_overlays
 from ..core.errors import LLMResponseError
+from ..llm.prompt import build_observe_system_prompt, build_observe_user_message, build_act_observe_prompt
 
 
 class ObserveHandler(BaseHandler[List[ObserveResult]]):
@@ -46,42 +46,118 @@ class ObserveHandler(BaseHandler[List[ObserveResult]]):
         )
         
         # Gather page information
-        page_info = await self._gather_page_info(page)
-        
-        # Build prompt for LLM
-        prompt = self._build_observe_prompt(page_info, options)
+        page_info = await self._gather_page_info(page, include_iframes=options.iframes or False)
         
         # Get LLM response
         try:
             # Get LLM client
             client = self.llm_provider.get_client(options.model_name)
             
-            # Create messages
-            messages = [
-                LLMMessage(
-                    role="system",
-                    content="You are a web automation assistant that identifies interactive elements on web pages."
-                ),
-                LLMMessage(
-                    role="user",
-                    content=prompt
+            # Determine instruction
+            if options.from_act and options.instruction:
+                # For act observations, use special prompt
+                supported_actions = [
+                    'click', 'fill', 'type', 'press', 'hover', 'selectOption',
+                    'check', 'uncheck', 'focus', 'blur', 'scrollIntoView'
+                ]
+                instruction = build_act_observe_prompt(
+                    options.instruction,
+                    supported_actions,
+                    None  # TODO: Add variables support
                 )
-            ]
+            else:
+                instruction = options.instruction or self._get_default_instruction(options.from_act)
             
-            # Get completion
+            # Create messages using structured prompt builders
+            system_prompt = build_observe_system_prompt(
+                self.llm_provider.stagehand.user_provided_instructions if hasattr(self.llm_provider, 'stagehand') else None
+            )
+            user_message = build_observe_user_message(
+                instruction,
+                page_info.get('simplified', '')
+            )
+            
+            # Keep LLMMessage objects and add JSON instruction
+            from ..types.llm import LLMMessage
+            
+            # Add JSON format instruction to system message content
+            if options.return_action:
+                # When returnAction is true, include method and arguments
+                json_instruction = """
+
+IMPORTANT: You must respond with a valid JSON object in this format:
+{
+  "elements": [
+    {
+      "elementId": "the ID string from the accessibility tree (e.g., '0-15'), never include square brackets",
+      "description": "a description of the element and its purpose",
+      "method": "the playwright method to use (e.g., 'click', 'fill', 'type', 'press', 'hover', 'scrollIntoView')",
+      "arguments": ["any", "arguments", "for", "the", "method"]
+    }
+  ]
+}
+
+Only return the JSON object, no other text."""
+            else:
+                # Regular observation without actions
+                json_instruction = """
+
+IMPORTANT: You must respond with a valid JSON object in this format:
+{
+  "elements": [
+    {
+      "elementId": "the ID string from the accessibility tree (e.g., '0-15'), never include square brackets",
+      "description": "a description of the element and its purpose"
+    }
+  ]
+}
+
+Only return the JSON object, no other text."""
+            
+            # Append JSON instruction to system prompt
+            system_prompt_with_json = LLMMessage(
+                role="system",
+                content=system_prompt.content + json_instruction
+            )
+            
+            messages = [system_prompt_with_json, user_message]
+            
+            # Get completion with JSON response format hint
             response = await client.create_chat_completion(
                 messages=messages,
                 temperature=0.1,  # Low temperature for consistent results
-                max_tokens=2000
+                max_tokens=2000,
+                response_format={"type": "json_object"}  # Request JSON response format
             )
             
             # Parse response
-            results = self._parse_observe_response(response, page_info, options.from_act)
+            results = self._parse_observe_response(response, page_info, options.from_act, options.return_action)
             
             self._log_info(
                 "Observation completed",
                 found_count=len(results)
             )
+            
+            # Add iframe warnings if present (matching TypeScript)
+            iframes = page_info.get('iframes', [])
+            if iframes and not options.iframes:
+                self._log_warning(
+                    f"Warning: found {len(iframes)} iframe(s) on the page. If you wish to interact with iframe content, please make sure you are setting iframes: true"
+                )
+                
+                # Add iframe elements to results (matching TypeScript)
+                for iframe in iframes:
+                    node_id = iframe.get('nodeId')
+                    if node_id:
+                        # Encode with frame ID (main frame)
+                        encoded_id = page.encode_with_frame_id(None, int(node_id))
+                        results.append(ObserveResult(
+                            selector=f"xpath=",  # Empty xpath like TypeScript
+                            description="an iframe",
+                            encoded_id=encoded_id,
+                            method="not-supported" if options.from_act else None,
+                            arguments=[] if options.from_act else None
+                        ))
             
             # Draw debug overlays if enabled
             if options.draw_overlay and results:
@@ -110,320 +186,88 @@ class ObserveHandler(BaseHandler[List[ObserveResult]]):
             self._log_error(f"Observation failed: {e}", error=str(e))
             raise
     
-    async def _gather_page_info(self, page: 'AIBrowserAutomationPage') -> Dict[str, Any]:
+    async def _gather_page_info(self, page: 'AIBrowserAutomationPage', include_iframes: bool = False) -> Dict[str, Any]:
         """Gather information about the page."""
         self._log_debug("Gathering page information")
         
-        # Import accessibility tree builder
-        from ..a11y import get_accessibility_tree
+        # Import accessibility tree functions
+        from ..a11y import get_accessibility_tree, get_accessibility_tree_with_frames
+        
+        # Wait for DOM to settle first (matching TypeScript)
+        await page._wait_for_settled_dom()
         
         try:
             # Get accessibility tree with XPath mappings
-            self._log_debug("Getting accessibility tree with XPath mappings")
-            simplified_tree, xpath_map, url_map = await get_accessibility_tree(page)
+            if include_iframes:
+                self._log_debug("Getting accessibility tree with frames")
+                tree_result = await get_accessibility_tree_with_frames(page)
+                # getAccessibilityTreeWithFrames returns different structure
+                return {
+                    "url": page.url,
+                    "title": await page.title(),
+                    "simplified": tree_result.get("combinedTree", ""),
+                    "xpath_map": tree_result.get("combinedXpathMap", {}),
+                    "url_map": tree_result.get("combinedUrlMap", {}),
+                    "iframes": [],  # Already included in combined tree
+                    "elements": [],  # Not used when iframes=True
+                    "text": ""  # Not used when iframes=True
+                }
+            else:
+                self._log_debug("Getting accessibility tree with XPath mappings")
+                tree_result = await get_accessibility_tree(page)
             
-            # Mark scrollable elements
-            self._log_debug("Detecting scrollable elements")
-            simplified_tree = await mark_scrollable_in_tree(simplified_tree, xpath_map, page._page)
+            # Extract components from tree result (matching TypeScript)
+            simplified_tree = tree_result["tree"]
+            xpath_map = tree_result.get("xpathMap", {})  # Note: camelCase from TypeScript
+            id_to_url = tree_result.get("idToUrl", {})   # Note: camelCase from TypeScript
+            iframes = tree_result.get("iframes", [])
+            
+            # Flatten the tree for processing (matching TypeScript)
+            flattened_elements = []
+            
+            def flatten_tree(nodes: List[Dict[str, Any]]) -> None:
+                for node in nodes:
+                    # Add the node
+                    flattened_elements.append(node)
+                    # Recurse into children
+                    if "children" in node:
+                        flatten_tree(node["children"])
+            
+            flatten_tree(simplified_tree)
             
             # Get page text for context
             page_text = await page._page.evaluate("() => document.body ? document.body.innerText : ''")
             
-            self._log_debug(f"Got {len(simplified_tree)} nodes from accessibility tree")
+            self._log_debug(f"Got {len(flattened_elements)} nodes from accessibility tree")
             
             return {
                 "url": page.url,
                 "title": await page.title(),
-                "elements": simplified_tree,
+                "elements": flattened_elements,
                 "xpath_map": xpath_map,
-                "url_map": url_map,
-                "text": clean_text(page_text)[:1000] if page_text else ""
+                "url_map": id_to_url,
+                "iframes": iframes,
+                "text": clean_text(page_text)[:1000] if page_text else "",
+                "simplified": tree_result.get("simplified", "")
             }
         except Exception as e:
-            self._log_error(f"Error getting accessibility tree, falling back to DOM scraping: {e}", error=str(e))
-            # Fallback to DOM scraping if CDP fails
-            
-            # Get elements in parallel
-            clickable_task = get_clickable_elements(page._page)
-            input_task = get_input_elements(page._page)
-            text_task = get_page_text(page._page)
-            
-            # Wait for all
-            clickable_elements = await clickable_task
-            input_elements = await input_task
-            page_text = await text_task
-            
-            # Combine elements and build xpath_map
-            all_elements = []
-            xpath_map = {}  # Create xpath_map for DOM fallback
-            
-            # Add clickable elements
-            for idx, elem in enumerate(clickable_elements):
-                encoded_id = f"0-{idx + 1}"
-                all_elements.append({
-                    "type": "clickable",
-                    "element": elem,
-                    "encodedId": encoded_id
-                })
-                # Build XPath from element attributes
-                # The selector from DOM scraping is CSS, not XPath
-                tag_name = elem['tagName'].lower()
-                
-                # Build XPath with attributes for uniqueness
-                if elem.get('id'):
-                    xpath_map[encoded_id] = f"//{tag_name}[@id='{elem['id']}']"
-                elif elem.get('className'):
-                    # Use first class for XPath
-                    classes = elem['className'].split()
-                    if classes:
-                        xpath_map[encoded_id] = f"//{tag_name}[contains(@class, '{classes[0]}')]"
-                    else:
-                        xpath_map[encoded_id] = f"//{tag_name}"
-                elif elem.get('href'):
-                    xpath_map[encoded_id] = f"//{tag_name}[@href='{elem['href']}']"
-                elif elem.get('text'):
-                    # Use text content for uniqueness
-                    text = elem['text'][:50]  # Limit text length
-                    xpath_map[encoded_id] = f"//{tag_name}[contains(text(), '{text}')]"
-                else:
-                    # Fallback to simple tag name
-                    xpath_map[encoded_id] = f"//{tag_name}"
-            
-            # Add input elements
-            for idx, elem in enumerate(input_elements):
-                encoded_id = f"0-{len(clickable_elements) + idx + 1}"
-                all_elements.append({
-                    "type": "input",
-                    "element": elem,
-                    "encodedId": encoded_id
-                })
-                # Build XPath from element attributes
-                # The selector from DOM scraping is CSS, not XPath
-                tag_name = elem['tagName'].lower()
-                
-                # Build XPath with attributes for uniqueness
-                if elem.get('id'):
-                    xpath_map[encoded_id] = f"//{tag_name}[@id='{elem['id']}']"
-                elif elem.get('name'):
-                    xpath_map[encoded_id] = f"//{tag_name}[@name='{elem['name']}']"
-                elif elem.get('placeholder'):
-                    xpath_map[encoded_id] = f"//{tag_name}[@placeholder='{elem['placeholder']}']"
-                elif elem.get('type'):
-                    xpath_map[encoded_id] = f"//{tag_name}[@type='{elem['type']}']"
-                elif elem.get('className'):
-                    # Use first class for XPath
-                    classes = elem['className'].split()
-                    if classes:
-                        xpath_map[encoded_id] = f"//{tag_name}[contains(@class, '{classes[0]}')]"
-                    else:
-                        xpath_map[encoded_id] = f"//{tag_name}"
-                else:
-                    # Fallback to simple tag name
-                    xpath_map[encoded_id] = f"//{tag_name}"
-            
-            return {
-                "url": page.url,
-                "title": await page.title(),
-                "elements": all_elements,
-                "xpath_map": xpath_map,  # Include xpath_map in DOM fallback
-                "text": clean_text(page_text)[:1000]  # First 1000 chars
-            }
+            self._log_error(f"Error getting accessibility tree: {e}", error=str(e))
+            # Re-raise the error - no fallback (matching TypeScript)
+            raise
     
-    def _build_observe_prompt(
-        self,
-        page_info: Dict[str, Any],
-        options: ObserveOptions
-    ) -> str:
-        """Build prompt for element observation."""
-        # Check if this is an act-specific observation
-        if options.from_act and options.instruction:
-            return self._build_act_observe_prompt(page_info, options)
-        
-        # Base prompt
-        prompt = f"""Analyze the following web page and identify interactive elements.
-
-Page URL: {page_info['url']}
-Page Title: {page_info['title']}
-
-Page Content Preview:
-{page_info['text']}
-
-Interactive Elements Found:
-"""
-        
-        # Add elements
-        if 'xpath_map' in page_info:
-            # Using accessibility tree nodes
-            for node in page_info['elements'][:50]:  # Limit to 50 elements
-                node_id = node.get('nodeId')
-                if not node_id:
-                    continue
-                    
-                encoded_id = f"0-{node_id}"
-                role = node.get('role', '')
-                name = node.get('name', '')
-                tag_name = node.get('tagName', '').upper()
-                
-                # Build description based on role and tag
-                if role in ['link', 'button'] or tag_name in ['A', 'BUTTON']:
-                    desc = f"- [{encoded_id}] {tag_name or role.upper()}"
-                    if name:
-                        desc += f": \"{name[:50]}\""
-                    if node.get('isScrollable'):
-                        desc += " [SCROLLABLE]"
-                    prompt += desc + "\n"
-                    
-                elif role in ['textbox', 'searchbox', 'combobox'] or tag_name in ['INPUT', 'TEXTAREA']:
-                    desc = f"- [{encoded_id}] {tag_name or 'INPUT'}"
-                    if name:
-                        desc += f": \"{name}\""
-                    prompt += desc + "\n"
-                elif node.get('isScrollable'):
-                    # Include scrollable containers
-                    desc = f"- [{encoded_id}] {tag_name or 'DIV'} [SCROLLABLE CONTAINER]"
-                    if name:
-                        desc += f": \"{name[:50]}\""
-                    prompt += desc + "\n"
-        else:
-            # Fallback: Using DOM elements
-            for elem_info in page_info['elements'][:50]:  # Limit to 50 elements
-                elem = elem_info['element']
-                elem_type = elem_info['type']
-                
-                if elem_type == "clickable":
-                    desc = f"- [{elem_info['encodedId']}] {elem['tagName'].upper()}"
-                    if elem['text']:
-                        desc += f": \"{elem['text'][:50]}\""
-                    if elem['href']:
-                        desc += f" (link to {elem['href']})"
-                    prompt += desc + "\n"
-                    
-                elif elem_type == "input":
-                    desc = f"- [{elem_info['encodedId']}] INPUT"
-                    if elem['type'] != 'text':
-                        desc += f" type=\"{elem['type']}\""
-                    if elem['placeholder']:
-                        desc += f": \"{elem['placeholder']}\""
-                    elif elem['name']:
-                        desc += f": name=\"{elem['name']}\""
-                    prompt += desc + "\n"
-        
-        # Add instruction
-        if options.instruction:
-            prompt += f"\n\nUser Instruction: {options.instruction}\n"
-        else:
-            prompt += "\n\nIdentify the most important interactive elements on this page.\n"
-        
-        # Add response format
-        prompt += """
-Return a JSON array of elements in this format:
-[
-  {
-    "elementId": "the encoded ID from above (e.g., 0-15)",
-    "description": "Human-readable description",
-    "action": "suggested action (click, fill, etc.)"
-  }
-]
-
-Only include elements that match the user's instruction (if provided) or the most important elements if no instruction is given.
-"""
-        
-        return prompt
+    def _get_default_instruction(self, from_act: bool = False) -> str:
+        """Get default instruction when none provided - matches TypeScript."""
+        if from_act:
+            return ""
+        return """Find elements that can be used for any future actions in the page. These may be navigation links, related pages, section/subsection links, buttons, or other interactive elements. Be comprehensive: if there are multiple elements that may be relevant for future actions, return all of them."""
     
-    def _build_act_observe_prompt(
-        self,
-        page_info: Dict[str, Any],
-        options: ObserveOptions
-    ) -> str:
-        """Build prompt specifically for act observations."""
-        import re
-        
-        # Supported Playwright methods
-        supported_methods = [
-            'click', 'fill', 'type', 'press', 'hover', 'selectOption',
-            'check', 'uncheck', 'focus', 'blur', 'scrollIntoView'
-        ]
-        
-        prompt = f"""Find the most relevant element to perform an action on given the following action: {options.instruction}
-
-Page URL: {page_info['url']}
-Page Title: {page_info['title']}
-
-Interactive Elements Found:
-"""
-        
-        # Add elements
-        if 'xpath_map' in page_info:
-            # Using accessibility tree nodes
-            for node in page_info['elements'][:50]:
-                node_id = node.get('nodeId')
-                if not node_id:
-                    continue
-                    
-                encoded_id = f"0-{node_id}"
-                role = node.get('role', '')
-                name = node.get('name', '')
-                tag_name = node.get('tagName', '').upper()
-                
-                # Filter for actionable elements
-                if role in ['link', 'button', 'textbox', 'searchbox', 'combobox'] or tag_name in ['A', 'BUTTON', 'INPUT', 'TEXTAREA', 'SELECT']:
-                    desc = f"- [{encoded_id}] {tag_name or role.upper()}"
-                    if name:
-                        desc += f": \"{name[:50]}\""
-                    prompt += desc + "\n"
-        else:
-            # Fallback: Using DOM elements
-            for elem_info in page_info['elements'][:50]:
-                elem = elem_info['element']
-                elem_type = elem_info['type']
-                
-                if elem_type == "clickable":
-                    desc = f"- [{elem_info['encodedId']}] {elem['tagName'].upper()}"
-                    if elem['text']:
-                        desc += f": \"{elem['text'][:50]}\""
-                    if elem['href']:
-                        desc += f" (link to {elem['href']})"
-                    prompt += desc + "\n"
-                    
-                elif elem_type == "input":
-                    desc = f"- [{elem_info['encodedId']}] INPUT"
-                    if elem['type'] != 'text':
-                        desc += f" type=\"{elem['type']}\""
-                    if elem['placeholder']:
-                        desc += f": \"{elem['placeholder']}\""
-                    elif elem['name']:
-                        desc += f": name=\"{elem['name']}\""
-                    prompt += desc + "\n"
-        
-        prompt += f"""
-Provide a Playwright method and arguments for this element. The supported methods are: {', '.join(supported_methods)}
-
-Important:
-- For fill/type actions, extract the text to input from the instruction
-- For click actions, use the 'click' method with no arguments
-- For press actions, extract the key to press (e.g., 'Enter', 'Tab', 'Space')
-
-Examples:
-- Instruction: "Fill the search box with 'hello world'" → method: "fill", arguments: ["hello world"]
-- Instruction: "Click the submit button" → method: "click", arguments: []
-- Instruction: "Press enter" → method: "press", arguments: ["Enter"]
-
-Return ONLY ONE element that best matches the action. Return a JSON object in this format:
-{{
-  "elementId": "the encoded ID from above (e.g., 0-15)",
-  "description": "Human-readable description",
-  "method": "playwright method to use",
-  "arguments": ["array", "of", "arguments"]
-}}
-"""
-        
-        return prompt
     
     def _parse_observe_response(
         self,
         response: Any,
         page_info: Dict[str, Any],
-        from_act: bool = False
+        from_act: bool = False,
+        return_action: bool = False
     ) -> List[ObserveResult]:
         """Parse LLM response into ObserveResult objects."""
         try:
@@ -438,33 +282,63 @@ Return ONLY ONE element that best matches the action. Return a JSON object in th
             elements_data = []
             
             try:
-                if from_act:
-                    # For act observations, expect a single object
-                    json_match = re.search(r'\{.*\}', content, re.DOTALL)
-                    if json_match:
-                        raw_data = json.loads(json_match.group(0))
+                # Always expect the same format: {"elements": [...]}
+                try:
+                    # Try to parse as JSON object with "elements" key
+                    parsed_json = json.loads(content)
+                    if isinstance(parsed_json, dict) and "elements" in parsed_json:
+                        raw_data = parsed_json["elements"]
                     else:
-                        raw_data = json.loads(content)
-                    
-                    # Validate with schema
-                    validated = ActObserveResponseSchema(**raw_data)
-                    elements_data = [validated.dict()]
-                else:
-                    # For regular observations, expect an array
+                        # Fallback to array parsing
+                        json_match = re.search(r'\[.*\]', content, re.DOTALL)
+                        if json_match:
+                            raw_data = json.loads(json_match.group(0))
+                        else:
+                            raw_data = json.loads(content)
+                except json.JSONDecodeError:
+                    # If JSON parsing fails, try to extract array
                     json_match = re.search(r'\[.*\]', content, re.DOTALL)
                     if json_match:
                         raw_data = json.loads(json_match.group(0))
                     else:
-                        raw_data = json.loads(content)
+                        self._log_error(f"Failed to parse JSON from content: {content[:200]}")
+                        return []
                     
-                    # Validate each element with schema
-                    for elem in raw_data:
-                        try:
-                            validated = ObserveElementSchema(**elem)
-                            elements_data.append(validated.dict())
-                        except ValidationError as e:
-                            self._log_debug(f"Skipping invalid element: {e}")
+                # Ensure raw_data is a list
+                if not isinstance(raw_data, list):
+                    self._log_error(f"Expected list, got {type(raw_data).__name__}")
+                    return []
+                
+                # Validate each element with appropriate schema
+                for elem in raw_data:
+                    try:
+                        # Ensure elem is a dictionary
+                        if not isinstance(elem, dict):
+                            # Handle case where LLM returns just element IDs
+                            if isinstance(elem, (str, int)):
+                                elem_id = str(elem).strip('[]')
+                                elem_dict = {
+                                    "elementId": elem_id,
+                                    "description": f"Element {elem_id}"
+                                }
+                                if return_action:
+                                    elem_dict["method"] = "click"
+                                    elem_dict["arguments"] = []
+                                validated = ObserveElementSchema(**elem_dict) if not return_action else ActObserveElementSchema(**elem_dict)
+                                elements_data.append(validated.dict())
+                            else:
+                                self._log_debug(f"Skipping non-dict element: {type(elem).__name__}")
                             continue
+                        
+                        # Use appropriate schema based on return_action
+                        if return_action:
+                            validated = ActObserveElementSchema(**elem)
+                        else:
+                            validated = ObserveElementSchema(**elem)
+                        elements_data.append(validated.dict())
+                    except ValidationError as e:
+                        self._log_debug(f"Skipping invalid element: {e}")
+                        continue
                             
             except (json.JSONDecodeError, ValidationError) as e:
                 self._log_error(f"Failed to parse/validate response: {e}")
@@ -486,42 +360,23 @@ Return ONLY ONE element that best matches the action. Return a JSON object in th
             
             # Convert to ObserveResult objects
             results = []
-            xpath_map = page_info.get('xpath_map', {})
+            xpath_map = page_info.get('xpath_map', {})  # This is set correctly in _gather_page_info
             
             for elem_data in elements_data:
+                # Ensure elem_data is a dictionary
+                if not isinstance(elem_data, dict):
+                    self._log_debug(f"Skipping non-dict element data: {type(elem_data).__name__}")
+                    continue
                 # Use elementId from LLM response
                 encoded_id = elem_data.get('elementId', elem_data.get('encodedId', ''))
                 
-                # Find element info first
-                element_info = None
-                for info in page_info['elements']:
-                    if isinstance(info, dict):
-                        if info.get('encodedId') == encoded_id:
-                            element_info = info
-                            break
-                        elif info.get('nodeId') and f"0-{info['nodeId']}" == encoded_id:
-                            element_info = info
-                            break
-                
-                # Build selector - always use XPath from mapping
-                # Following TypeScript pattern: always return xpath= prefix
+                # Get XPath from mapping - matching TypeScript
                 xpath = xpath_map.get(encoded_id, '')
                 
-                if not xpath and element_info:
-                    # Try to build a fallback XPath if not in map
-                    if 'element' in element_info:
-                        # Using DOM elements - get selector
-                        elem = element_info['element']
-                        elem_selector = elem.get('selector', '')
-                        if elem_selector.startswith('xpath='):
-                            xpath = elem_selector[6:]  # Remove xpath= prefix
-                        else:
-                            # Build basic XPath from tag
-                            xpath = f"//{elem['tagName'].lower()}"
-                    else:
-                        # Using accessibility node - build basic XPath
-                        tag_name = element_info.get('tagName', 'div')
-                        xpath = f"//{tag_name.lower()}"
+                # If not found, try with frame prefix (TypeScript uses "0-" prefix for main frame)
+                if not xpath and not encoded_id.startswith('0-'):
+                    prefixed_id = f"0-{encoded_id}"
+                    xpath = xpath_map.get(prefixed_id, '')
                 
                 # Always use xpath= prefix, even if xpath is empty (matching TypeScript)
                 selector = f"xpath={xpath}"

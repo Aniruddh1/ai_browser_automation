@@ -2,6 +2,7 @@
 
 from typing import List, Dict, Any, Optional, Tuple
 import re
+import itertools
 
 
 def escape_xpath_string(value: str) -> str:
@@ -260,6 +261,203 @@ XPATH_GENERATION_SCRIPT = """
     return info;
 })(arguments[0]);
 """
+
+
+def get_combinations(attributes: List[Dict[str, str]], size: int) -> List[List[Dict[str, str]]]:
+    """
+    Generate all possible combinations of a given array of attributes.
+    
+    Args:
+        attributes: Array of attributes with 'attr' and 'value' keys
+        size: The size of each combination
+        
+    Returns:
+        List of attribute combinations
+    """
+    return list(itertools.combinations(attributes, size))
+
+
+async def is_xpath_first_result_element(page: Any, xpath: str, target_element: Any = None) -> bool:
+    """
+    Check if the generated XPath uniquely identifies the target element.
+    
+    Args:
+        page: Playwright page instance
+        xpath: The XPath string to test
+        target_element: The target DOM element (optional)
+        
+    Returns:
+        True if XPath selects exactly one element (and it's the target if provided)
+    """
+    try:
+        # Get all elements matching the XPath
+        elements = await page.locator(f'xpath={xpath}').all()
+        
+        # Check if we have exactly one element
+        if len(elements) != 1:
+            return False
+            
+        # If target element provided, verify it's the same
+        if target_element:
+            # Compare using element handle evaluation
+            is_same = await page.evaluate(
+                '(el1, el2) => el1 === el2',
+                await elements[0].element_handle(),
+                target_element
+            )
+            return is_same
+            
+        return True
+    except Exception as e:
+        # If there's an error evaluating the XPath, consider it not unique
+        print(f"Invalid XPath expression: {xpath}, error: {e}")
+        return False
+
+
+async def generate_xpaths_for_element(element: Any, page: Any = None) -> List[str]:
+    """
+    Generate both a complex XPath and a standard XPath for a given DOM element.
+    Matches TypeScript's generateXPathsForElement function.
+    
+    Args:
+        element: The target DOM element (Playwright ElementHandle)
+        page: Playwright page instance (optional, for validation)
+        
+    Returns:
+        List of XPaths ordered from most accurate to most cacheable
+    """
+    if not element:
+        return []
+    
+    # Get element info using our script
+    element_info = await element.evaluate(XPATH_GENERATION_SCRIPT)
+    
+    # Generate the three types of XPaths
+    complex_xpath = await generate_complex_xpath(element, element_info, page)
+    standard_xpath = await generate_standard_xpath(element)
+    id_based_xpath = await generate_id_based_xpath(element, element_info)
+    
+    # Return in order from most accurate to most cacheable
+    xpaths = [standard_xpath]
+    if id_based_xpath:
+        xpaths.append(id_based_xpath)
+    xpaths.append(complex_xpath)
+    
+    return xpaths
+
+
+async def generate_complex_xpath(element: Any, element_info: Dict[str, Any], page: Any = None) -> str:
+    """
+    Generate a complex XPath using attribute combinations.
+    Matches TypeScript's generateComplexXPath function.
+    """
+    tag_name = element_info['tagName'].lower()
+    
+    # List of attributes to consider for uniqueness (matching TypeScript)
+    attribute_priority = [
+        "data-qa",
+        "data-component",
+        "data-role",
+        "role",
+        "aria-role",
+        "type",
+        "name",
+        "aria-label",
+        "placeholder",
+        "title",
+        "alt",
+    ]
+    
+    # Collect attributes present on the element
+    attributes = []
+    element_attrs = element_info.get('attributes', {})
+    
+    for attr in attribute_priority:
+        value = element_attrs.get(attr)
+        if value:
+            attributes.append({'attr': attr, 'value': value})
+    
+    # Attempt to find a combination of attributes that uniquely identifies the element
+    unique_selector = ""
+    
+    if page:  # Only validate if page is provided
+        for i in range(1, len(attributes) + 1):
+            combinations = get_combinations(attributes, i)
+            for combo in combinations:
+                conditions = []
+                for attr_dict in combo:
+                    conditions.append(f'@{attr_dict["attr"]}={escape_xpath_string(attr_dict["value"])}')
+                
+                xpath = f'//{tag_name}[{" and ".join(conditions)}]'
+                
+                if await is_xpath_first_result_element(page, xpath, element):
+                    unique_selector = xpath
+                    break
+            
+            if unique_selector:
+                break
+    
+    if unique_selector:
+        return unique_selector.replace('//', '')
+    
+    # Fallback to positional selector
+    return await generate_standard_xpath(element)
+
+
+async def generate_standard_xpath(element: Any) -> str:
+    """
+    Generate a standard positional XPath for a given DOM element.
+    Matches TypeScript's generateStandardXPath function.
+    """
+    # Use JavaScript to generate the XPath
+    xpath = await element.evaluate("""
+        (element) => {
+            const parts = [];
+            let current = element;
+            
+            while (current && (current.nodeType === 1 || current.nodeType === 3)) {
+                let index = 0;
+                let hasSameTypeSiblings = false;
+                const siblings = current.parentElement ? Array.from(current.parentElement.childNodes) : [];
+                
+                for (let i = 0; i < siblings.length; i++) {
+                    const sibling = siblings[i];
+                    if (sibling.nodeType === current.nodeType && 
+                        sibling.nodeName === current.nodeName) {
+                        index++;
+                        hasSameTypeSiblings = true;
+                        if (sibling === current) {
+                            break;
+                        }
+                    }
+                }
+                
+                // Text nodes are selected differently than elements
+                if (current.nodeName !== '#text') {
+                    const tagName = current.nodeName.toLowerCase();
+                    const pathIndex = hasSameTypeSiblings ? `[${index}]` : '';
+                    parts.unshift(`${tagName}${pathIndex}`);
+                }
+                
+                current = current.parentElement;
+            }
+            
+            return parts.length ? `/${parts.join('/')}` : '';
+        }
+    """)
+    
+    return xpath
+
+
+async def generate_id_based_xpath(element: Any, element_info: Dict[str, Any]) -> Optional[str]:
+    """
+    Generate an ID-based XPath if the element has an ID.
+    Matches TypeScript's generatedIdBasedXPath function.
+    """
+    element_id = element_info.get('id')
+    if element_id:
+        return f"//*[@id='{element_id}']"
+    return None
 
 
 async def get_element_xpath_info(page: Any, element: Any) -> Dict[str, Any]:

@@ -108,5 +108,20 @@ class BrowserEvent(BaseModel):
     target_id: Optional[str] = None
 
 
+class TreeResult(BaseModel):
+    """Result of accessibility tree building."""
+    tree: List[Dict[str, Any]]  # List of AccessibilityNode
+    simplified: str
+    iframes: List[Dict[str, Any]]  # List of iframe nodes
+    idToUrl: Dict[str, str]  # EncodedId to URL mapping
+    xpathMap: Optional[Dict[str, str]] = None  # EncodedId to XPath mapping
+
+
+class BackendIdMaps(BaseModel):
+    """Mappings from backend node IDs."""
+    tagNameMap: Dict[str, str]  # EncodedId to tag name
+    xpathMap: Dict[str, str]  # EncodedId to XPath
+
+
 # Update forward references
 DOMNode.model_rebuild()

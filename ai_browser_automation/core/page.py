@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+import weakref
 from typing import Optional, Any, Dict, List, Union, TYPE_CHECKING, TypeVar
 from playwright.async_api import Page, CDPSession
 
@@ -53,6 +54,7 @@ class AIBrowserAutomationPage(CDPIntegration):
         self._context = context
         self._logger = context.ai_browser_automation.logger.child(component="page")
         self._cdp_session: Optional[CDPSession] = None
+        self._cdp_clients: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()  # CDP session cache
         
         # Frame tracking
         self._frame_ordinals: Dict[Optional[str], int] = {None: 0}  # None for main frame
@@ -76,6 +78,9 @@ class AIBrowserAutomationPage(CDPIntegration):
         
         # Set this as the active page
         context.active_page = self
+        
+        # Inject DOM scripts asynchronously
+        asyncio.create_task(self._inject_dom_scripts())
     
     @property
     def context(self) -> 'AIBrowserAutomationContext':
@@ -101,6 +106,66 @@ class AIBrowserAutomationPage(CDPIntegration):
         """Encode backend node ID with frame ordinal."""
         ordinal = self.ordinal_for_frame_id(frame_id)
         return f"{ordinal}-{backend_id}"
+    
+    def reset_frame_ordinals(self) -> None:
+        """Reset frame ordinals mapping. Matches TypeScript's resetFrameOrdinals."""
+        self._frame_ordinals = {None: 0}  # None for main frame
+        self._next_frame_ordinal = 1
+    
+    async def _inject_dom_scripts(self) -> None:
+        """
+        Inject DOM helper scripts into the page.
+        Matches TypeScript's ensureStagehandScript.
+        """
+        try:
+            # Check if scripts are already injected
+            injected = await self._page.evaluate("() => !!window.__aiBrowserAutomationInjected")
+            if injected:
+                return
+            
+            # Import the scripts
+            from ..dom.scripts import DOM_SCRIPTS
+            
+            # Guard the script to prevent double injection
+            guarded_script = f"""
+if (!window.__aiBrowserAutomationInjected) {{
+    {DOM_SCRIPTS}
+}}
+"""
+            
+            # Add init script for new pages/frames
+            await self._page.add_init_script(guarded_script)
+            
+            # Execute on current page
+            await self._page.evaluate(guarded_script)
+            
+            self._scripts_injected = True
+            self._logger.debug("page:dom", "DOM helper scripts injected successfully")
+            
+        except Exception as e:
+            error_str = str(e)
+            # This specific error is expected during navigation
+            if "Execution context was destroyed" in error_str and "navigation" in error_str:
+                self._logger.warn(
+                    "page:dom",
+                    "DOM script injection interrupted by navigation (this is expected - scripts will be injected when page loads)",
+                    error=error_str,
+                )
+            else:
+                # Other errors are more concerning
+                self._logger.error(
+                    "page:dom",
+                    "Failed to inject DOM helper scripts",
+                    error=error_str,
+                    trace=e.__traceback__ if hasattr(e, '__traceback__') else None,
+                )
+            # Don't throw - allow page to continue working since add_init_script ensures
+            # scripts will be available when the page loads
+    
+    async def _ensure_dom_scripts(self) -> None:
+        """Ensure DOM scripts are injected before operations that need them."""
+        if not self._scripts_injected:
+            await self._inject_dom_scripts()
     
     async def act(
         self,
@@ -134,6 +199,9 @@ class AIBrowserAutomationPage(CDPIntegration):
             logger=self._logger,
             llm_provider=self.ai_browser_automation.llm_provider,
         )
+        
+        # Ensure DOM scripts are injected
+        await self._ensure_dom_scripts()
         
         # Execute action
         try:
@@ -203,6 +271,9 @@ class AIBrowserAutomationPage(CDPIntegration):
             logger=self._logger,
             llm_provider=self.ai_browser_automation.llm_provider,
         )
+        
+        # Ensure DOM scripts are injected
+        await self._ensure_dom_scripts()
         
         # Execute extraction
         try:
@@ -275,6 +346,9 @@ class AIBrowserAutomationPage(CDPIntegration):
             llm_provider=self.ai_browser_automation.llm_provider,
         )
         
+        # Ensure DOM scripts are injected
+        await self._ensure_dom_scripts()
+        
         # Execute observation
         try:
             results = await handler.handle(self, observe_options)
@@ -340,6 +414,82 @@ class AIBrowserAutomationPage(CDPIntegration):
             options=handler_options,
         )
     
+    async def get_cdp_client(self, target: Optional[Union[Page, Any]] = None) -> CDPSession:
+        """
+        Get or create a CDP session for the given target.
+        Matches TypeScript's getCDPClient method.
+        
+        Args:
+            target: The Page or Frame to talk to (defaults to current page)
+            
+        Returns:
+            CDPSession instance
+        """
+        if target is None:
+            target = self._page
+            
+        # Check cache first
+        cached = self._cdp_clients.get(target)
+        if cached:
+            return cached
+            
+        try:
+            # Create new CDP session
+            session = await self._page.context.new_cdp_session(target)
+            self._cdp_clients[target] = session
+            return session
+        except Exception as err:
+            # Fallback for same-process iframes
+            error_msg = str(err)
+            if "does not have a separate CDP session" in error_msg:
+                # Re-use/create the top-level session instead
+                root_session = await self.get_cdp_client(self._page)
+                # Cache the alias so we don't try again for this frame
+                self._cdp_clients[target] = root_session
+                return root_session
+            raise
+    
+    async def send_cdp(self, method: str, params: Optional[Dict[str, Any]] = None, target: Optional[Any] = None) -> Any:
+        """
+        Send a CDP command to the chosen DevTools target.
+        Matches TypeScript's sendCDP method.
+        
+        Args:
+            method: Any valid CDP method, e.g. "DOM.getDocument"
+            params: Command parameters (optional)
+            target: A Page or Frame. Defaults to the main page.
+            
+        Returns:
+            CDP command result
+        """
+        if params is None:
+            params = {}
+            
+        client = await self.get_cdp_client(target or self._page)
+        return await client.send(method, params)
+    
+    async def enable_cdp(self, domain: str, target: Optional[Any] = None) -> None:
+        """
+        Enable a CDP domain (e.g. "Network" or "DOM") on the chosen target.
+        Matches TypeScript's enableCDP method.
+        
+        Args:
+            domain: CDP domain name
+            target: Optional target (defaults to main page)
+        """
+        await self.send_cdp(f"{domain}.enable", {}, target)
+    
+    async def disable_cdp(self, domain: str, target: Optional[Any] = None) -> None:
+        """
+        Disable a CDP domain on the chosen target.
+        Matches TypeScript's disableCDP method.
+        
+        Args:
+            domain: CDP domain name
+            target: Optional target (defaults to main page)
+        """
+        await self.send_cdp(f"{domain}.disable", {}, target)
+    
     async def _ensure_cdp_session(self) -> CDPSession:
         """
         Ensure CDP session is available.
@@ -352,23 +502,23 @@ class AIBrowserAutomationPage(CDPIntegration):
         """
         if not self._cdp_session:
             try:
-                # Create CDP session
-                client = await self._page.context.new_cdp_session(self._page)
-                self._cdp_session = client
+                # Use new method
+                self._cdp_session = await self.get_cdp_client()
                 
                 self._logger.debug(
                     "page:cdp",
                     "CDP session created",
-                    session_id=id(client),
+                    session_id=id(self._cdp_session),
                 )
             except Exception as e:
                 raise CDPError("session_create", str(e))
         
         return self._cdp_session
     
-    async def _wait_for_settled_dom(self, timeout_ms: int = 30000) -> None:
+    async def _wait_for_settled_dom(self, timeout_ms: Optional[int] = None) -> None:
         """
         Wait for DOM to settle (no network activity).
+        Matches TypeScript's _waitForSettledDom implementation.
         
         Args:
             timeout_ms: Maximum time to wait in milliseconds
@@ -376,89 +526,175 @@ class AIBrowserAutomationPage(CDPIntegration):
         Raises:
             TimeoutError: If DOM doesn't settle within timeout
         """
-        self._logger.debug(
-            "page:dom",
-            "Waiting for DOM to settle",
-            timeout_ms=timeout_ms,
-        )
+        timeout = timeout_ms or self.ai_browser_automation.config.dom_settle_timeout_ms or 30000
         
         # Get CDP session
-        cdp = await self._ensure_cdp_session()
+        client = await self.get_cdp_client()
+        
+        # Check if document exists
+        try:
+            has_doc = bool(await self._page.title())
+        except:
+            has_doc = False
+            
+        if not has_doc:
+            await self._page.wait_for_load_state("domcontentloaded")
+        
+        # Enable CDP domains
+        await client.send('Network.enable')
+        await client.send('Page.enable')
+        await client.send('Target.setAutoAttach', {
+            'autoAttach': True,
+            'waitForDebuggerOnStart': False,
+            'flatten': True  # Important for frames
+        })
         
         # Track network requests
-        pending_requests: set[str] = set()
-        request_timestamps: Dict[str, float] = {}
+        inflight: set[str] = set()
+        meta: Dict[str, Dict[str, Any]] = {}  # request_id -> {url, start}
+        doc_by_frame: Dict[str, str] = {}  # frame_id -> request_id
         
-        # Set up event handlers
+        # Timers
+        quiet_timer_handle = None
+        stalled_sweep_handle = None
+        
+        def clear_quiet():
+            nonlocal quiet_timer_handle
+            if quiet_timer_handle:
+                quiet_timer_handle.cancel()
+                quiet_timer_handle = None
+        
+        def maybe_quiet():
+            nonlocal quiet_timer_handle
+            if len(inflight) == 0 and not quiet_timer_handle:
+                quiet_timer_handle = asyncio.get_event_loop().call_later(0.5, resolve_done)
+        
+        def finish_req(request_id: str):
+            if request_id not in inflight:
+                return
+            inflight.discard(request_id)
+            meta.pop(request_id, None)
+            # Remove from doc_by_frame if it's there
+            for fid, rid in list(doc_by_frame.items()):
+                if rid == request_id:
+                    doc_by_frame.pop(fid, None)
+            clear_quiet()
+            maybe_quiet()
+        
+        # Event handlers
         def on_request_will_be_sent(params: Dict[str, Any]) -> None:
+            # Skip WebSocket and EventSource
+            if params.get('type') in ('WebSocket', 'EventSource'):
+                return
+                
             request_id = params.get('requestId', '')
-            pending_requests.add(request_id)
-            request_timestamps[request_id] = time.time()
+            inflight.add(request_id)
+            meta[request_id] = {
+                'url': params.get('request', {}).get('url', ''),
+                'start': time.time()
+            }
+            
+            # Track document requests by frame
+            if params.get('type') == 'Document' and params.get('frameId'):
+                doc_by_frame[params['frameId']] = request_id
+                
+            clear_quiet()
         
         def on_loading_finished(params: Dict[str, Any]) -> None:
-            request_id = params.get('requestId', '')
-            pending_requests.discard(request_id)
-            request_timestamps.pop(request_id, None)
+            finish_req(params.get('requestId', ''))
         
         def on_loading_failed(params: Dict[str, Any]) -> None:
-            request_id = params.get('requestId', '')
-            pending_requests.discard(request_id)
-            request_timestamps.pop(request_id, None)
-        
-        # Enable network domain
-        await cdp.send('Network.enable')
+            finish_req(params.get('requestId', ''))
+            
+        def on_request_served_from_cache(params: Dict[str, Any]) -> None:
+            finish_req(params.get('requestId', ''))
+            
+        def on_response_received(params: Dict[str, Any]) -> None:
+            # Handle data URLs
+            if params.get('response', {}).get('url', '').startswith('data:'):
+                finish_req(params.get('requestId', ''))
+                
+        def on_frame_stopped_loading(params: Dict[str, Any]) -> None:
+            frame_id = params.get('frameId')
+            if frame_id and frame_id in doc_by_frame:
+                finish_req(doc_by_frame[frame_id])
         
         # Register listeners
-        cdp.on('Network.requestWillBeSent', on_request_will_be_sent)
-        cdp.on('Network.loadingFinished', on_loading_finished)
-        cdp.on('Network.loadingFailed', on_loading_failed)
+        client.on('Network.requestWillBeSent', on_request_will_be_sent)
+        client.on('Network.loadingFinished', on_loading_finished)
+        client.on('Network.loadingFailed', on_loading_failed)
+        client.on('Network.requestServedFromCache', on_request_served_from_cache)
+        client.on('Network.responseReceived', on_response_received)
+        client.on('Page.frameStoppedLoading', on_frame_stopped_loading)
+        
+        # Stalled request sweep timer
+        async def stalled_sweep():
+            while True:
+                await asyncio.sleep(0.5)  # Run every 500ms
+                now = time.time()
+                for request_id, info in list(meta.items()):
+                    if now - info['start'] > 2.0:  # 2 seconds
+                        inflight.discard(request_id)
+                        meta.pop(request_id, None)
+                        self._logger.debug(
+                            "page:dom",
+                            "⏳ forcing completion of stalled iframe document",
+                            url=info['url'][:120]
+                        )
+                maybe_quiet()
+        
+        # Create promise-like behavior using asyncio
+        done_event = asyncio.Event()
+        
+        def resolve_done():
+            done_event.set()
+        
+        # Start stalled sweep task
+        stalled_sweep_task = asyncio.create_task(stalled_sweep())
+        
+        # Start with maybe_quiet check
+        maybe_quiet()
+        
+        # Set up timeout guard
+        async def timeout_guard():
+            await asyncio.sleep(timeout / 1000)  # Convert ms to seconds
+            if len(inflight) > 0:
+                self._logger.debug(
+                    "page:dom", 
+                    "⚠️ DOM-settle timeout reached – network requests still pending",
+                    count=len(inflight)
+                )
+            resolve_done()
+        
+        timeout_task = asyncio.create_task(timeout_guard())
         
         try:
-            # Wait for network quiet period
-            start_time = time.time()
-            quiet_start: Optional[float] = None
-            quiet_period_ms = 500  # 500ms of no network activity
-            
-            while True:
-                # Check timeout
-                elapsed_ms = (time.time() - start_time) * 1000
-                if elapsed_ms > timeout_ms:
-                    raise TimeoutError("wait_for_settled_dom", timeout_ms)
-                
-                # Clean up stalled requests (> 30s old)
-                current_time = time.time()
-                stalled_requests = [
-                    req_id for req_id, timestamp in request_timestamps.items()
-                    if current_time - timestamp > 30
-                ]
-                for req_id in stalled_requests:
-                    pending_requests.discard(req_id)
-                    request_timestamps.pop(req_id, None)
-                
-                # Check if network is quiet
-                if not pending_requests:
-                    if quiet_start is None:
-                        quiet_start = time.time()
-                    elif (time.time() - quiet_start) * 1000 >= quiet_period_ms:
-                        # Network has been quiet for required period
-                        break
-                else:
-                    quiet_start = None
-                
-                # Small delay to prevent busy waiting
-                await asyncio.sleep(0.1)
-                
+            # Wait for done event
+            await done_event.wait()
         finally:
-            # Clean up listeners
-            cdp.remove_listener('Network.requestWillBeSent', on_request_will_be_sent)
-            cdp.remove_listener('Network.loadingFinished', on_loading_finished)
-            cdp.remove_listener('Network.loadingFailed', on_loading_failed)
-        
-        self._logger.debug(
-            "page:dom",
-            "DOM settled",
-            elapsed_ms=int((time.time() - start_time) * 1000),
-        )
+            # Clean up
+            client.remove_listener('Network.requestWillBeSent', on_request_will_be_sent)
+            client.remove_listener('Network.loadingFinished', on_loading_finished)
+            client.remove_listener('Network.loadingFailed', on_loading_failed)
+            client.remove_listener('Network.requestServedFromCache', on_request_served_from_cache)
+            client.remove_listener('Network.responseReceived', on_response_received)
+            client.remove_listener('Page.frameStoppedLoading', on_frame_stopped_loading)
+            
+            # Cancel tasks
+            if quiet_timer_handle:
+                quiet_timer_handle.cancel()
+            stalled_sweep_task.cancel()
+            timeout_task.cancel()
+            
+            # Suppress cancellation errors
+            try:
+                await stalled_sweep_task
+            except asyncio.CancelledError:
+                pass
+            try:
+                await timeout_task
+            except asyncio.CancelledError:
+                pass
     
     async def _ensure_ai_automation_scripts(self) -> None:
         """Ensure AIBrowserAutomation helper scripts are injected."""

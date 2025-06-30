@@ -454,3 +454,159 @@ async def wait_for_selector_stable(
         return True
     except Exception:
         return False
+
+
+# TypeScript-matching DOM functions
+def get_scrollable_elements_script() -> str:
+    """
+    JavaScript to find scrollable elements on the page.
+    Matches TypeScript's getScrollableElements.
+    """
+    return """
+function getScrollableElements(topN) {
+    // Get the root <html> element
+    const docEl = document.documentElement;
+    
+    // 1) Initialize an array to hold all scrollable elements.
+    //    Always include the root <html> element as a fallback.
+    const scrollableElements = [docEl];
+    
+    // 2) Scan all elements to find potential scrollable containers.
+    //    A candidate must have a scrollable overflow style and extra scrollable content.
+    const allElements = document.querySelectorAll("*");
+    for (const elem of allElements) {
+        const style = window.getComputedStyle(elem);
+        const overflowY = style.overflowY;
+        
+        const isPotentiallyScrollable =
+            overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay";
+        
+        if (isPotentiallyScrollable) {
+            const candidateScrollDiff = elem.scrollHeight - elem.clientHeight;
+            // Only consider this element if it actually has extra scrollable content
+            // and it can truly scroll.
+            if (candidateScrollDiff > 0 && canElementScroll(elem)) {
+                scrollableElements.push(elem);
+            }
+        }
+    }
+    
+    // 3) Sort the scrollable elements from largest scrollHeight to smallest.
+    scrollableElements.sort((a, b) => b.scrollHeight - a.scrollHeight);
+    
+    // 4) If a topN limit is specified, return only the first topN elements.
+    if (topN !== undefined) {
+        return scrollableElements.slice(0, topN);
+    }
+    
+    // Return all found scrollable elements if no limit is provided.
+    return scrollableElements;
+}
+
+function canElementScroll(elem) {
+    // Quick check if scrollTo is a function
+    if (typeof elem.scrollTo !== "function") {
+        console.warn("canElementScroll: .scrollTo is not a function.");
+        return false;
+    }
+    
+    try {
+        const originalTop = elem.scrollTop;
+        
+        // try to scroll
+        elem.scrollTo({
+            top: originalTop + 100,
+            left: 0,
+            behavior: "instant",
+        });
+        
+        // If scrollTop never changed, consider it unscrollable
+        if (elem.scrollTop === originalTop) {
+            throw new Error("scrollTop did not change");
+        }
+        
+        // Scroll back to original place
+        elem.scrollTo({
+            top: originalTop,
+            left: 0,
+            behavior: "instant",
+        });
+        
+        return true;
+    } catch (error) {
+        console.warn("canElementScroll error:", error.message || error);
+        return false;
+    }
+}
+"""
+
+
+def get_scrollable_element_xpaths_script() -> str:
+    """
+    JavaScript to get XPaths of scrollable elements.
+    Matches TypeScript's getScrollableElementXpaths.
+    """
+    return """
+async function getScrollableElementXpaths(topN) {
+    const scrollableElems = getScrollableElements(topN);
+    const xpaths = [];
+    for (const elem of scrollableElems) {
+        const allXPaths = await generateXPathsForElement(elem);
+        const firstXPath = allXPaths?.[0] || "";
+        xpaths.push(firstXPath);
+    }
+    return xpaths;
+}
+
+// Register global function
+window.getScrollableElementXpaths = getScrollableElementXpaths;
+"""
+
+
+def get_node_from_xpath_script() -> str:
+    """
+    JavaScript to get node from XPath.
+    Matches TypeScript's getNodeFromXpath.
+    """
+    return """
+function getNodeFromXpath(xpath) {
+    return document.evaluate(
+        xpath,
+        document.documentElement,
+        null,
+        XPathResult.FIRST_ORDERED_NODE_TYPE,
+        null,
+    ).singleNodeValue;
+}
+
+// Register global function
+window.getNodeFromXpath = getNodeFromXpath;
+"""
+
+
+def wait_for_element_scroll_end_script() -> str:
+    """
+    JavaScript to wait for element scroll end.
+    Matches TypeScript's waitForElementScrollEnd.
+    """
+    return """
+function waitForElementScrollEnd(element, idleMs = 100) {
+    return new Promise((resolve) => {
+        let scrollEndTimer;
+        
+        const handleScroll = () => {
+            clearTimeout(scrollEndTimer);
+            scrollEndTimer = setTimeout(() => {
+                element.removeEventListener("scroll", handleScroll);
+                resolve();
+            }, idleMs);
+        };
+        
+        element.addEventListener("scroll", handleScroll, { passive: true });
+        handleScroll();
+    });
+}
+
+// Register global function
+window.waitForElementScrollEnd = waitForElementScrollEnd;
+"""

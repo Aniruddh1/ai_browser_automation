@@ -29,6 +29,8 @@ from .browser import (
     MousePosition,
     KeyboardModifiers,
     BrowserEvent,
+    TreeResult,
+    BackendIdMaps,
 )
 
 from .llm import (
@@ -76,6 +78,8 @@ __all__ = [
     "MousePosition",
     "KeyboardModifiers",
     "BrowserEvent",
+    "TreeResult",
+    "BackendIdMaps",
     # llm.py
     "LLMMessage",
     "LLMTool",

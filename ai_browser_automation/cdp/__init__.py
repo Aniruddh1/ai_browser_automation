@@ -1,5 +1,13 @@
 """CDP (Chrome DevTools Protocol) utilities for AI Browser Automation."""
 
+# Use simplified CDP manager to match TypeScript implementation
+from .manager_simple import (
+    cdp_manager,
+    SimpleCDPManager,
+    SimpleCDPSessionPool,
+)
+
+# Keep original complex manager for backwards compatibility if needed
 from .manager import (
     CDPManager,
     CDPEventListener,
@@ -9,10 +17,13 @@ from .manager import (
     FrameChainResolver,
     NetworkInterceptor,
     PerformanceMonitor,
-    cdp_manager
+    cdp_manager as complex_cdp_manager
 )
 
 __all__ = [
+    "cdp_manager",
+    "SimpleCDPManager",
+    "SimpleCDPSessionPool",
     "CDPManager",
     "CDPEventListener", 
     "CDPSessionPool",
@@ -21,5 +32,5 @@ __all__ = [
     "FrameChainResolver",
     "NetworkInterceptor",
     "PerformanceMonitor",
-    "cdp_manager"
+    "complex_cdp_manager"
 ]

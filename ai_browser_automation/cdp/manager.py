@@ -5,7 +5,6 @@ from typing import Dict, List, Any, Optional, Callable, Set, Tuple
 from collections import defaultdict
 from playwright.async_api import CDPSession, Page, Frame
 import json
-from datetime import datetime
 import weakref
 
 
@@ -66,9 +65,9 @@ class CDPSessionPool:
     """Manages a pool of CDP sessions for performance."""
     
     def __init__(self):
-        self.sessions: Dict[str, CDPSession] = {}  # frame_id -> session
+        # Use WeakKeyDictionary to auto-cleanup sessions when frames are GC'd
+        self.frame_sessions: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()  # frame -> session
         self.page_sessions: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()  # page -> main session
-        self.last_used: Dict[str, datetime] = {}
         
     async def get_session(self, page: Page, frame: Optional[Frame] = None) -> CDPSession:
         """
@@ -84,36 +83,53 @@ class CDPSessionPool:
         # For main frame, use page-level session
         if frame is None or frame == page.main_frame:
             if page not in self.page_sessions:
-                session = await page.context.new_cdp_session(page)
-                self.page_sessions[page] = session
+                try:
+                    session = await page.context.new_cdp_session(page)
+                    self.page_sessions[page] = session
+                except Exception as e:
+                    raise RuntimeError(f"Failed to create CDP session for page: {e}")
             return self.page_sessions[page]
         
-        # For subframes, create frame-specific session
-        frame_id = frame.url  # Use URL as simple frame identifier
-        if frame_id not in self.sessions:
+        # For subframes, check if we already have a session
+        if frame in self.frame_sessions:
+            return self.frame_sessions[frame]
+        
+        # Try to create frame-specific session
+        try:
             session = await page.context.new_cdp_session(frame)
-            self.sessions[frame_id] = session
-            
-        self.last_used[frame_id] = datetime.now()
-        return self.sessions[frame_id]
+            self.frame_sessions[frame] = session
+            return session
+        except Exception as e:
+            # Fallback for same-process iframes that share parent's session
+            if "does not have a separate CDP session" in str(e):
+                # Re-use the page's session for same-process iframes
+                root_session = await self.get_session(page)  # Recursive call to get page session
+                # Cache this alias so we don't try again
+                self.frame_sessions[frame] = root_session
+                return root_session
+            raise RuntimeError(f"Failed to create CDP session for frame: {e}")
     
-    async def cleanup_old_sessions(self, max_age_seconds: int = 300):
-        """Clean up sessions not used recently."""
-        now = datetime.now()
-        to_remove = []
-        
-        for frame_id, last_used in self.last_used.items():
-            if (now - last_used).total_seconds() > max_age_seconds:
-                to_remove.append(frame_id)
-        
-        for frame_id in to_remove:
-            if frame_id in self.sessions:
-                try:
-                    await self.sessions[frame_id].detach()
-                except:
-                    pass
-                del self.sessions[frame_id]
-                del self.last_used[frame_id]
+    async def is_session_valid(self, session: CDPSession) -> bool:
+        """Check if a CDP session is still valid."""
+        try:
+            # Try a simple CDP command to check if session is alive
+            await session.send('Runtime.evaluate', {'expression': '1'})
+            return True
+        except:
+            return False
+    
+    async def cleanup(self):
+        """Clean up all sessions."""
+        # WeakKeyDictionary handles cleanup automatically when frames/pages are GC'd
+        # But we can force cleanup of any remaining sessions
+        all_sessions = list(self.page_sessions.values()) + list(self.frame_sessions.values())
+        for session in all_sessions:
+            try:
+                await session.detach()
+            except:
+                pass  # Session might already be closed
+        self.page_sessions.clear()
+        self.frame_sessions.clear()
 
 
 class CDPBatchExecutor:
@@ -448,6 +464,10 @@ class CDPManager:
         batch: bool = True
     ) -> Any:
         """Execute a CDP command, optionally batching."""
+        # Check if session is still valid before executing
+        if not await self.session_pool.is_session_valid(session):
+            raise RuntimeError(f"CDP session is no longer valid for method {method}")
+        
         if batch:
             return await self.batch_executor.execute(session, method, params)
         else:
@@ -488,7 +508,7 @@ class CDPManager:
     
     async def cleanup(self):
         """Clean up resources."""
-        await self.session_pool.cleanup_old_sessions()
+        await self.session_pool.cleanup()
         self.event_listener.clear()
 
 

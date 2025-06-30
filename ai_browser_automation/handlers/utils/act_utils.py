@@ -42,8 +42,9 @@ async def perform_playwright_method(
     # Clean selector (removes xpath= prefix, ensures starts with /)
     xpath = clean_selector(selector)
     
-    # Get the locator with xpath prefix
-    locator = page.locator(f"xpath={xpath}")
+    # Get the locator with xpath prefix, use .first to handle multiple matches
+    # Note: In Python Playwright, .first is a property, not a method
+    locator = page.locator(f"xpath={xpath}").first
     
     # Log the action
     logger.debug(

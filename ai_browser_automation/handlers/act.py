@@ -315,7 +315,7 @@ class ActHandler(BaseHandler[ActResult]):
         await wait_for_selector_stable(page._page, selector, timeout=options.timeout)
         
         # Fill the element
-        await page.fill(selector, value)
+        await page._page.fill(selector, value)
     
     async def _handle_type(
         self,
@@ -331,7 +331,7 @@ class ActHandler(BaseHandler[ActResult]):
             text = "test input"
         
         await wait_for_selector_stable(page._page, selector, timeout=options.timeout)
-        await page.type(selector, text)
+        await page._page.type(selector, text)
     
     async def _handle_press(
         self,
@@ -343,7 +343,7 @@ class ActHandler(BaseHandler[ActResult]):
         key = options.variable_values.get("key", "Enter") if options.variable_values else "Enter"
         
         await wait_for_selector_stable(page._page, selector, timeout=options.timeout)
-        await page.press(selector, key)
+        await page._page.press(selector, key)
     
     async def _handle_scroll(
         self,
@@ -371,7 +371,7 @@ class ActHandler(BaseHandler[ActResult]):
     ) -> None:
         """Handle hover action."""
         await wait_for_selector_stable(page._page, selector, timeout=options.timeout)
-        await page.hover(selector)
+        await page._page.hover(selector)
     
     async def _handle_drag(
         self,
@@ -392,7 +392,7 @@ class ActHandler(BaseHandler[ActResult]):
     ) -> None:
         """Handle screenshot action."""
         # Take screenshot of specific element
-        element = await page.wait_for_selector(selector)
+        element = await page._page.wait_for_selector(selector)
         if element:
             await element.screenshot()
     
@@ -404,7 +404,7 @@ class ActHandler(BaseHandler[ActResult]):
     ) -> None:
         """Handle wait action."""
         # Wait for element to appear
-        await page.wait_for_selector(selector, timeout=options.timeout)
+        await page._page.wait_for_selector(selector, timeout=options.timeout)
     
     async def _handle_navigate(
         self,
@@ -415,7 +415,7 @@ class ActHandler(BaseHandler[ActResult]):
         """Handle navigation action."""
         if options.variable_values and "url" in options.variable_values:
             url = options.variable_values["url"]
-            await page.goto(url)
+            await page._page.goto(url)
         else:
             raise ActionFailedError("navigate", "No URL provided for navigation")
     

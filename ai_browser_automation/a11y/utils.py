@@ -16,6 +16,7 @@ from ..dom.xpath import (
     escape_xpath_string,
     XPATH_GENERATION_SCRIPT
 )
+from ..cdp import cdp_manager, FrameChainResolver
 
 
 class AccessibilityTreeBuilder:
@@ -25,16 +26,20 @@ class AccessibilityTreeBuilder:
         self.ai_browser_automation_page = ai_browser_automation_page
         self.page = ai_browser_automation_page._page
         self.cdp_session: Optional[CDPSession] = None
+        self.use_partial_trees = True  # Enable partial tree extraction
+        self.batch_cdp_calls = True    # Enable CDP call batching
         
     async def __aenter__(self):
-        """Create CDP session."""
-        self.cdp_session = await self.page.context.new_cdp_session(self.page)
+        """Create CDP session using the CDP manager."""
+        self.cdp_session = await cdp_manager.get_session(self.page)
+        # Don't enable domains here - let each method enable what it needs
         return self
         
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Close CDP session."""
-        if self.cdp_session:
-            await self.cdp_session.detach()
+        # Don't detach session - let the pool manage it
+        # This prevents "Target closed" errors
+        pass
             
     async def get_accessibility_tree_with_frames(self) -> Tuple[List[Dict], Dict[str, str], Dict[str, str]]:
         """
@@ -48,16 +53,13 @@ class AccessibilityTreeBuilder:
         """
         if not self.cdp_session:
             raise RuntimeError("CDP session not initialized")
-            
-        # Enable necessary CDP domains using CDP manager
-        if self.batch_cdp_calls:
-            await asyncio.gather(
-                cdp_manager.execute(self.cdp_session, "Accessibility.enable"),
-                cdp_manager.execute(self.cdp_session, "DOM.enable")
-            )
-        else:
-            await self.cdp_session.send("Accessibility.enable")
+        
+        # Enable domains needed for accessibility tree
+        try:
             await self.cdp_session.send("DOM.enable")
+            await self.cdp_session.send("Accessibility.enable")
+        except Exception as e:
+            print(f"Warning: Failed to enable CDP domains: {e}")
         
         try:
             # Collect accessibility trees from all frames
@@ -86,13 +88,15 @@ class AccessibilityTreeBuilder:
                     url_map[str(snapshot['frame_ordinal'])] = snapshot['frame_url']
                 else:
                     url_map['0'] = snapshot['frame_url']  # Main frame
-                
-            return simplified, encoded_xpath_map, url_map
             
+            return simplified, encoded_xpath_map, url_map
         finally:
-            # Disable CDP domains
-            await self.cdp_session.send("Accessibility.disable")
-            await self.cdp_session.send("DOM.disable")
+            # Disable domains when done
+            try:
+                await self.cdp_session.send("DOM.disable")
+                await self.cdp_session.send("Accessibility.disable")
+            except:
+                pass  # Ignore errors during cleanup
             
     async def _build_backend_id_maps(self) -> Tuple[Dict[int, str], Dict[int, str]]:
         """
@@ -305,11 +309,10 @@ class AccessibilityTreeBuilder:
             # Get CDP session from pool for this frame
             frame_session = await cdp_manager.get_session(frame.page, frame)
             
-            # Enable domains
-            await frame_session.send("Accessibility.enable")
-            await frame_session.send("DOM.enable")
-            
             try:
+                # Enable domains on the frame session
+                await frame_session.send("DOM.enable")
+                await frame_session.send("Accessibility.enable")
                 # Get accessibility tree for frame
                 ax_response = await frame_session.send("Accessibility.getFullAXTree")
                 ax_nodes = ax_response.get("nodes", [])
@@ -349,8 +352,8 @@ class AccessibilityTreeBuilder:
                 }
                 
             finally:
-                await frame_session.send("Accessibility.disable")
                 await frame_session.send("DOM.disable")
+                await frame_session.send("Accessibility.disable")
                 # Session detach handled by pool
                 
         except Exception as e:
@@ -414,6 +417,7 @@ class AccessibilityTreeBuilder:
     async def _get_cdp_frame_id(self, frame: Any) -> Optional[str]:
         """
         Get the CDP frame ID for a Playwright frame.
+        Following TypeScript's getCDPFrameId implementation.
         
         Args:
             frame: The Playwright frame
@@ -422,51 +426,59 @@ class AccessibilityTreeBuilder:
             CDP frame ID or None
         """
         try:
-            # Get the frame's execution context
-            context = await frame.evaluate_handle('() => window')
+            # For main frame, return None
+            if not frame or frame == self.page.main_frame:
+                return None
             
-            # Get CDP session for the frame
-            if hasattr(context, '_channel'):
-                # Try to get frame ID from channel
-                channel = context._channel
-                if hasattr(channel, '_connection'):
-                    # Look for frame info in the connection
-                    for obj_id, obj in channel._connection._objects.items():
-                        if hasattr(obj, '_type') and obj._type == 'Frame' and obj == frame:
-                            # Found the frame, get its CDP ID
-                            if hasattr(obj, '_initializer') and 'frameId' in obj._initializer:
-                                return obj._initializer['frameId']
+            # Get frame tree from CDP
+            response = await self.cdp_session.send('Page.getFrameTree')
+            frame_tree = response.get('frameTree', {})
             
-            # Fallback: Try to get frame ID via CDP
-            if frame == self.page.main_frame:
-                # Main frame has a special ID
-                page_target = self.page.context.browser._connection._sessions.get(self.page._channel._guid)
-                if page_target:
-                    return page_target._target_id
-            else:
-                # For child frames, try to get via DOM.getFrameOwner
-                parent_frame = frame.parent_frame
-                if parent_frame:
-                    # Get iframe element in parent frame
-                    frame_element = await frame.frame_element()
-                    if frame_element:
-                        # Get backend node ID of iframe element
-                        backend_id = await frame_element.evaluate(
-                            'element => window.__getCDPNodeId ? window.__getCDPNodeId(element) : null'
-                        )
-                        if backend_id:
-                            # Query CDP for frame ID
-                            response = await self.cdp_session.send('DOM.describeNode', {
-                                'backendNodeId': backend_id
-                            })
-                            if 'frameId' in response:
-                                return response['frameId']
+            # Search for frame by URL and depth
+            frame_url = frame.url
             
-            # Last resort: use internal GUID
-            return getattr(frame, '_guid', None)
+            # Calculate frame depth
+            depth = 0
+            parent = frame.parent_frame
+            while parent:
+                depth += 1
+                parent = parent.parent_frame
+            
+            def find_frame_by_url_depth(node: Dict[str, Any], current_depth: int = 0) -> Optional[str]:
+                """Find frame ID by URL and depth in frame tree."""
+                frame_info = node.get('frame', {})
+                if current_depth == depth and frame_info.get('url') == frame_url:
+                    return frame_info.get('id')
+                
+                # Search children
+                for child in node.get('childFrames', []):
+                    frame_id = find_frame_by_url_depth(child, current_depth + 1)
+                    if frame_id:
+                        return frame_id
+                
+                return None
+            
+            # Try to find frame in the tree
+            frame_id = find_frame_by_url_depth(frame_tree)
+            if frame_id:
+                return frame_id
+            
+            # For out-of-process iframes, try creating a new session
+            try:
+                frame_session = await self.page.context.new_cdp_session(frame)
+                frame_response = await frame_session.send('Page.getFrameTree')
+                frame_tree = frame_response.get('frameTree', {})
+                frame_id = frame_tree.get('frame', {}).get('id')
+                await frame_session.detach()
+                return frame_id
+            except Exception:
+                # Frame might not have a separate session
+                pass
+            
+            return None
             
         except Exception as e:
-            print(f"Error getting CDP frame ID: {e}")
+            # Silently fail - frame ID is optional
             return None
     
     async def _build_frame_backend_id_maps(

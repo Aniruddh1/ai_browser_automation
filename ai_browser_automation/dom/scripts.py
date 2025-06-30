@@ -279,13 +279,9 @@ window.generateUniqueSelector = function(elem) {
                 return selector;
             }
             
-            // Add nth-of-type if needed
+            // If multiple matches, return XPath instead
             if (matches.length > 1) {
-                const siblings = Array.from(elem.parentElement.children).filter(
-                    e => e.tagName === elem.tagName && e.className === elem.className
-                );
-                const index = siblings.indexOf(elem) + 1;
-                return `${selector}:nth-of-type(${index})`;
+                return window.generateXPath(elem);
             }
         }
     }

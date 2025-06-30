@@ -1,0 +1,99 @@
+[tool.poetry]
+name = "ai-browser-automation"
+version = "0.1.0"
+description = "AI-powered browser automation framework for Python"
+authors = ["AI Browser Automation Contributors"]
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/your-org/ai-browser-automation"
+repository = "https://github.com/your-org/ai-browser-automation"
+keywords = ["browser", "automation", "ai", "playwright", "llm"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Internet :: WWW/HTTP :: Browsers",
+]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+playwright = "^1.40.0"
+pydantic = "^2.5.0"
+python-dotenv = "^1.0.0"
+structlog = ">=24.1.0"
+httpx = ">=0.25.0"
+openai = "^1.6.0"
+anthropic = ">=0.30.0"
+google-generativeai = ">=0.3.0"
+filelock = "^3.13.0"
+aiofiles = ">=23.2.0"
+Pillow = "^10.2.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+pytest-asyncio = "^0.21.0"
+pytest-cov = "^4.1.0"
+black = "^23.12.0"
+ruff = "^0.1.0"
+mypy = "^1.7.0"
+types-aiofiles = "^23.2.0"
+ipython = "^8.18.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 88
+target-version = ['py39']
+include = '\.pyi?$'
+
+[tool.ruff]
+line-length = 88
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+ignore = ["E501", "B008", "B904"]
+target-version = "py39"
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+follow_imports = "normal"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-ra -q --strict-markers --cov=ai_browser_automation --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["ai_browser_automation"]
+omit = ["*/tests/*", "*/examples/*"]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false

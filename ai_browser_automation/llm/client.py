@@ -107,6 +107,9 @@ class LLMClient(ABC):
             "claude-3",
             "gemini-pro-vision",
             "gemini-1.5",
+            "gemini-2.0",
+            "gemini-2.5",
+            # Most Gemini models support vision except embedding models
         ]
         
         return any(vm in model_name.lower() for vm in vision_models)

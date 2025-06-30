@@ -49,10 +49,38 @@ class GoogleClient(LLMClient):
     def _map_model_name(self, model_name: str) -> str:
         """Map common model names to Google model IDs."""
         model_map = {
+            # Legacy models (for backward compatibility)
             "gemini-pro": "gemini-pro",
             "gemini-pro-vision": "gemini-pro-vision",
+            
+            # Stable Gemini 2.5 models
+            "gemini-2.5-pro": "gemini-2.5-pro",
+            "gemini-2.5-flash": "gemini-2.5-flash",
+            
+            # Stable Gemini 2.0 models
+            "gemini-2.0-flash": "gemini-2.0-flash",
+            "gemini-2.0-flash-lite": "gemini-2.0-flash-lite",
+            
+            # Stable Gemini 1.5 models
             "gemini-1.5-pro": "gemini-1.5-pro",
             "gemini-1.5-flash": "gemini-1.5-flash",
+            "gemini-1.5-flash-8b": "gemini-1.5-flash-8b",
+            
+            # Preview/Experimental models
+            "gemini-2.5-flash-lite-preview-06-17": "gemini-2.5-flash-lite-preview-06-17",
+            "gemini-2.5-flash-preview-native-audio-dialog": "gemini-2.5-flash-preview-native-audio-dialog",
+            "gemini-2.5-flash-exp-native-audio-thinking-dialog": "gemini-2.5-flash-exp-native-audio-thinking-dialog",
+            "gemini-2.5-flash-preview-tts": "gemini-2.5-flash-preview-tts",
+            "gemini-2.5-pro-preview-tts": "gemini-2.5-pro-preview-tts",
+            "gemini-2.0-flash-preview-image-generation": "gemini-2.0-flash-preview-image-generation",
+            "gemini-2.0-flash-exp": "gemini-2.0-flash-exp",
+            "gemini-live-2.5-flash-preview": "gemini-live-2.5-flash-preview",
+            "gemini-2.0-flash-live-001": "gemini-2.0-flash-live-001",
+            
+            # Embedding models
+            "text-embedding-004": "text-embedding-004",
+            "embedding-001": "embedding-001",
+            "gemini-embedding-exp-03-07": "gemini-embedding-exp-03-07",
         }
         return model_map.get(model_name, model_name)
     

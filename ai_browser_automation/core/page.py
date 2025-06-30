@@ -226,15 +226,13 @@ class AIBrowserAutomationPage(CDPIntegration):
     
     async def observe(
         self,
-        instruction: Optional[str] = None,
-        **options: Any,
+        instruction_or_options: Optional[Union[str, ObserveOptions]] = None,
     ) -> List[ObserveResult]:
         """
         Observe available elements and actions on the page.
         
         Args:
-            instruction: Optional instruction for what to observe
-            **options: Additional observation options
+            instruction_or_options: Either a string instruction or ObserveOptions object
             
         Returns:
             List of ObserveResult with found elements
@@ -243,23 +241,33 @@ class AIBrowserAutomationPage(CDPIntegration):
             # Find all interactive elements
             elements = await page.observe()
             
-            # Find specific elements
+            # Find specific elements with string
             buttons = await page.observe("Find all button elements")
+            
+            # Find elements with options
+            elements = await page.observe(ObserveOptions(
+                instruction="Find form inputs",
+                draw_overlay=True
+            ))
         """
+        # Parse input to match TypeScript behavior
+        if isinstance(instruction_or_options, str):
+            observe_options = ObserveOptions(instruction=instruction_or_options)
+        elif isinstance(instruction_or_options, ObserveOptions):
+            observe_options = instruction_or_options
+        elif instruction_or_options is None:
+            observe_options = ObserveOptions()
+        else:
+            raise TypeError("observe() accepts either a string or ObserveOptions object")
+            
         self._logger.info(
             "page:observe",
             "Observing page",
-            instruction=instruction,
+            instruction=observe_options.instruction,
         )
         
         # Import handler here to avoid circular dependency
         from ..handlers import ObserveHandler
-        
-        # Create observation options
-        observe_options = ObserveOptions(
-            instruction=instruction,
-            **options,
-        )
         
         # Create handler
         handler = ObserveHandler(

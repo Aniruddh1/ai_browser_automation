@@ -51,14 +51,9 @@ class ObserveResult(BaseModel):
     """Result from an observe operation."""
     selector: str
     description: str
-    action: Optional[ActionType] = None
-    encoded_id: EncodedId
-    attributes: Optional[Dict[str, str]] = None
-    xpath: Optional[str] = None
+    backend_node_id: Optional[int] = None  # Maps to backendNodeId in TS
     method: Optional[str] = None  # Playwright method to use (e.g., 'fill', 'click')
     arguments: Optional[List[str]] = None  # Arguments for the method
-    
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class ActOptions(BaseModel):
@@ -106,15 +101,14 @@ class ExtractResult(BaseModel, Generic[T]):
 class ObserveOptions(BaseModel):
     """Options for the observe method."""
     instruction: Optional[str] = None
-    model_name: Optional[str] = None
-    include_hidden: bool = False
-    include_iframes: bool = False
-    use_vision: bool = True
-    timeout: int = 30000
-    use_cache: bool = True
-    return_action: bool = False  # Whether to return action details for act method
-    from_act: bool = False  # Whether this observe is called from act method
-    debug_dom: bool = False  # Whether to draw visual overlays on observed elements
+    model_name: Optional[str] = None  # Maps to modelName in TS
+    model_client_options: Optional[Dict[str, Any]] = None  # Maps to modelClientOptions in TS
+    dom_settle_timeout_ms: Optional[int] = None  # Maps to domSettleTimeoutMs in TS
+    return_action: bool = True  # Whether to return action details - default True to match TS
+    only_visible: Optional[bool] = None  # Deprecated, matches onlyVisible in TS
+    draw_overlay: bool = False  # Maps to drawOverlay in TS
+    iframes: Optional[bool] = None  # Whether to process iframes
+    from_act: bool = False  # Internal flag for act method calls
 
 
 class InitResult(BaseModel):

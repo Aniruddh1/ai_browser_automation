@@ -37,12 +37,30 @@ class LLMProvider:
         "claude-3.5-sonnet": "anthropic",
         "claude-2.1": "anthropic",
         "claude-2": "anthropic",
-        # Google models
+        # Google models - Stable
         "gemini-pro": "google",
         "gemini-pro-vision": "google",
+        "gemini-2.5-pro": "google",
+        "gemini-2.5-flash": "google",
+        "gemini-2.0-flash": "google",
+        "gemini-2.0-flash-lite": "google",
         "gemini-1.5-pro": "google",
         "gemini-1.5-flash": "google",
-        "gemini-2.0-flash": "google",
+        "gemini-1.5-flash-8b": "google",
+        # Google models - Preview/Experimental
+        "gemini-2.5-flash-lite-preview-06-17": "google",
+        "gemini-2.5-flash-preview-native-audio-dialog": "google",
+        "gemini-2.5-flash-exp-native-audio-thinking-dialog": "google",
+        "gemini-2.5-flash-preview-tts": "google",
+        "gemini-2.5-pro-preview-tts": "google",
+        "gemini-2.0-flash-preview-image-generation": "google",
+        "gemini-2.0-flash-exp": "google",
+        "gemini-live-2.5-flash-preview": "google",
+        "gemini-2.0-flash-live-001": "google",
+        # Google embedding models
+        "text-embedding-004": "google",
+        "embedding-001": "google",
+        "gemini-embedding-exp-03-07": "google",
     }
     
     def __init__(

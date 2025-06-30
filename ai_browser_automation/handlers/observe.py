@@ -40,7 +40,9 @@ class ObserveHandler(BaseHandler[List[ObserveResult]]):
         self._log_info(
             "Starting observation",
             instruction=options.instruction,
-            include_hidden=options.include_hidden,
+            only_visible=options.only_visible,
+            draw_overlay=options.draw_overlay,
+            iframes=options.iframes,
         )
         
         # Gather page information
@@ -81,8 +83,8 @@ class ObserveHandler(BaseHandler[List[ObserveResult]]):
                 found_count=len(results)
             )
             
-            # Draw debug overlays if debug mode is enabled
-            if options.debug_dom and results:
+            # Draw debug overlays if enabled
+            if options.draw_overlay and results:
                 self._log_debug("Drawing debug overlays")
                 elements_for_overlay = [
                     {
@@ -151,29 +153,79 @@ class ObserveHandler(BaseHandler[List[ObserveResult]]):
             input_elements = await input_task
             page_text = await text_task
             
-            # Combine elements
+            # Combine elements and build xpath_map
             all_elements = []
+            xpath_map = {}  # Create xpath_map for DOM fallback
             
             # Add clickable elements
             for idx, elem in enumerate(clickable_elements):
+                encoded_id = f"0-{idx + 1}"
                 all_elements.append({
                     "type": "clickable",
                     "element": elem,
-                    "encodedId": f"0-{idx + 1}"  # Simple encoding for now
+                    "encodedId": encoded_id
                 })
+                # Build XPath from element attributes
+                # The selector from DOM scraping is CSS, not XPath
+                tag_name = elem['tagName'].lower()
+                
+                # Build XPath with attributes for uniqueness
+                if elem.get('id'):
+                    xpath_map[encoded_id] = f"//{tag_name}[@id='{elem['id']}']"
+                elif elem.get('className'):
+                    # Use first class for XPath
+                    classes = elem['className'].split()
+                    if classes:
+                        xpath_map[encoded_id] = f"//{tag_name}[contains(@class, '{classes[0]}')]"
+                    else:
+                        xpath_map[encoded_id] = f"//{tag_name}"
+                elif elem.get('href'):
+                    xpath_map[encoded_id] = f"//{tag_name}[@href='{elem['href']}']"
+                elif elem.get('text'):
+                    # Use text content for uniqueness
+                    text = elem['text'][:50]  # Limit text length
+                    xpath_map[encoded_id] = f"//{tag_name}[contains(text(), '{text}')]"
+                else:
+                    # Fallback to simple tag name
+                    xpath_map[encoded_id] = f"//{tag_name}"
             
             # Add input elements
             for idx, elem in enumerate(input_elements):
+                encoded_id = f"0-{len(clickable_elements) + idx + 1}"
                 all_elements.append({
                     "type": "input",
                     "element": elem,
-                    "encodedId": f"0-{len(clickable_elements) + idx + 1}"
+                    "encodedId": encoded_id
                 })
+                # Build XPath from element attributes
+                # The selector from DOM scraping is CSS, not XPath
+                tag_name = elem['tagName'].lower()
+                
+                # Build XPath with attributes for uniqueness
+                if elem.get('id'):
+                    xpath_map[encoded_id] = f"//{tag_name}[@id='{elem['id']}']"
+                elif elem.get('name'):
+                    xpath_map[encoded_id] = f"//{tag_name}[@name='{elem['name']}']"
+                elif elem.get('placeholder'):
+                    xpath_map[encoded_id] = f"//{tag_name}[@placeholder='{elem['placeholder']}']"
+                elif elem.get('type'):
+                    xpath_map[encoded_id] = f"//{tag_name}[@type='{elem['type']}']"
+                elif elem.get('className'):
+                    # Use first class for XPath
+                    classes = elem['className'].split()
+                    if classes:
+                        xpath_map[encoded_id] = f"//{tag_name}[contains(@class, '{classes[0]}')]"
+                    else:
+                        xpath_map[encoded_id] = f"//{tag_name}"
+                else:
+                    # Fallback to simple tag name
+                    xpath_map[encoded_id] = f"//{tag_name}"
             
             return {
                 "url": page.url,
                 "title": await page.title(),
                 "elements": all_elements,
+                "xpath_map": xpath_map,  # Include xpath_map in DOM fallback
                 "text": clean_text(page_text)[:1000]  # First 1000 chars
             }
     
@@ -452,49 +504,39 @@ Return ONLY ONE element that best matches the action. Return a JSON object in th
                             break
                 
                 # Build selector - always use XPath from mapping
-                selector = None
-                if encoded_id in xpath_map:
-                    # Add xpath= prefix for selector format
-                    selector = f"xpath={xpath_map[encoded_id]}"
-                elif element_info:
+                # Following TypeScript pattern: always return xpath= prefix
+                xpath = xpath_map.get(encoded_id, '')
+                
+                if not xpath and element_info:
+                    # Try to build a fallback XPath if not in map
                     if 'element' in element_info:
-                        # Using DOM elements
+                        # Using DOM elements - get selector
                         elem = element_info['element']
-                        selector = elem.get('selector', f"{elem['tagName']}")
+                        elem_selector = elem.get('selector', '')
+                        if elem_selector.startswith('xpath='):
+                            xpath = elem_selector[6:]  # Remove xpath= prefix
+                        else:
+                            # Build basic XPath from tag
+                            xpath = f"//{elem['tagName'].lower()}"
                     else:
                         # Using accessibility node - build basic XPath
                         tag_name = element_info.get('tagName', 'div')
-                        selector = f"xpath=//{tag_name}"
-                else:
-                    # No selector found
-                    selector = "unknown"
+                        xpath = f"//{tag_name.lower()}"
                 
-                # Create result
-                # Make sure encoded_id is a string
-                encoded_id_str = str(encoded_id or '0-0')
+                # Always use xpath= prefix, even if xpath is empty (matching TypeScript)
+                selector = f"xpath={xpath}"
                 
-                # Extract attributes
-                attributes = None
-                if element_info:
-                    if 'element' in element_info:
-                        # DOM element
-                        attributes = self._extract_string_attributes(element_info['element'])
-                    else:
-                        # Accessibility node - extract basic attributes
-                        attributes = {
-                            'role': str(element_info.get('role', '')),
-                            'name': str(element_info.get('name', '')),
-                            'tagName': str(element_info.get('tagName', ''))
-                        }
-                        # Remove empty values
-                        attributes = {k: v for k, v in attributes.items() if v}
+                if not xpath:
+                    self._log_debug(
+                        f"Empty xpath returned for element: {encoded_id}",
+                        element_id=encoded_id
+                    )
                 
+                # Create result matching TypeScript interface
                 result = ObserveResult(
-                    selector=selector or "unknown",
+                    selector=selector,  # No fallback to "unknown" - matching TypeScript
                     description=elem_data.get('description', 'No description'),
-                    action=elem_data.get('action'),
-                    encoded_id=encoded_id_str,
-                    attributes=attributes,
+                    backend_node_id=None,  # Could be populated if needed
                     method=elem_data.get('method'),  # Add method for act observations
                     arguments=elem_data.get('arguments', [])  # Add arguments for act observations
                 )
@@ -507,13 +549,3 @@ Return ONLY ONE element that best matches the action. Return a JSON object in th
             # Return empty list on parse error
             return []
     
-    def _extract_string_attributes(self, element: Dict[str, Any]) -> Dict[str, str]:
-        """Extract only string attributes from element."""
-        string_attrs = {}
-        for key, value in element.items():
-            if isinstance(value, str):
-                string_attrs[key] = value
-            elif isinstance(value, (int, float, bool)):
-                string_attrs[key] = str(value)
-            # Skip complex types like dicts and lists
-        return string_attrs

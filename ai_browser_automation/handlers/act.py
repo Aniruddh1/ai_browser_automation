@@ -233,12 +233,14 @@ class ActHandler(BaseHandler[ActResult]):
         # by calling act() twice, once for each action
         
         # Observe the page with act-specific options
-        observe_results = await page.observe(
+        from ..types import ObserveOptions
+        observe_options = ObserveOptions(
             instruction=instruction_str,
             model_name=options.model_name,
             return_action=True,
             from_act=True
         )
+        observe_results = await page.observe(observe_options)
         
         if not observe_results:
             raise ElementNotFoundError("", instruction_str)

@@ -23,8 +23,8 @@ async def test_google_search():
         verbose=1,  # Show some logs
         model_name="gpt-4o-mini",
         model_client_options={"api_key": os.getenv("OPENAI_API_KEY")}
-    ) as stagehand:
-        page = await stagehand.page()
+    ) as browser:
+        page = await browser.page()
         await page.goto("https://www.youtube.com")
 
         print("1. Testing fill action with quoted text:")
@@ -83,7 +83,7 @@ async def main():
         print("Set OPENAI_API_KEY environment variable for real testing.")
 
     await test_google_search()
-    print("\n✓ Google search test completed!")
+    print("\n[OK] YouTube search test completed!")
 
 
 if __name__ == "__main__":

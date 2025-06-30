@@ -17,9 +17,9 @@ async def main():
     
     try:
         # Create AIBrowserAutomation instance
-        async with AIBrowserAutomation(headless=False, verbose=1) as stagehand:
+        async with AIBrowserAutomation(headless=False, verbose=1) as browser:
             # Create a page
-            page = await stagehand.page()
+            page = await browser.page()
             
             # Navigate to example.com
             await page.goto("https://example.com")
@@ -49,10 +49,10 @@ async def main():
             # Wait before closing
             await asyncio.sleep(2)
             
-        print("\n✓ DOM utility tests completed!")
+        print("\n[OK] DOM utility tests completed!")
         
     except Exception as e:
-        print(f"\n✗ Test failed with error: {e}")
+        print(f"\n[FAIL] Test failed with error: {e}")
         import traceback
         traceback.print_exc()
 

@@ -5,15 +5,15 @@
 ```mermaid
 sequenceDiagram
     participant User
-    participant StagehandPage
+    participant AIBrowserAutomationPage
     participant ObserveHandler
     participant AccessibilityTreeBuilder
     participant CDP
     participant LLM
     participant ActHandler
 
-    User->>StagehandPage: page.act("Click submit button")
-    StagehandPage->>ActHandler: handle(action)
+    User->>AIBrowserAutomationPage: page.act("Click submit button")
+    AIBrowserAutomationPage->>ActHandler: handle(action)
     ActHandler->>ObserveHandler: observe(instruction)
     
     Note over ObserveHandler: Phase 1: Gather Page Info
@@ -46,8 +46,8 @@ sequenceDiagram
     ObserveHandler-->>ActHandler: ObserveResult(selector="xpath=...")
     
     Note over ActHandler: Phase 5: Action Execution
-    ActHandler->>StagehandPage: page.click("xpath=/html/body/button[1]")
-    StagehandPage-->>User: ActResult(success=True)
+    ActHandler->>AIBrowserAutomationPage: page.click("xpath=/html/body/button[1]")
+    AIBrowserAutomationPage-->>User: ActResult(success=True)
 ```
 
 ## Data Flow Diagram

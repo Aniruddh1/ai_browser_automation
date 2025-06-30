@@ -20,38 +20,38 @@ async def main():
             headless=False,
             verbose=2,
             enable_caching=True,
-        ) as stagehand:
-            print(f"✓ AIBrowserAutomation created with session ID: {stagehand.session_id}")
+        ) as browser:
+            print(f"[OK] AIBrowserAutomation created with session ID: {browser.session_id}")
             
             # Initialize browser
-            init_result = await stagehand.init()
-            print(f"✓ Browser initialized: {init_result.debugger_url}")
+            init_result = await browser.init()
+            print(f"[OK] Browser initialized: {init_result.debugger_url}")
             
             # Create a page
-            page = await stagehand.page()
-            print(f"✓ Page created: {page}")
+            page = await browser.page()
+            print(f"[OK] Page created: {page}")
             
             # Navigate to example.com
             await page.goto("https://example.com")
-            print(f"✓ Navigated to: {page.url}")
+            print(f"[OK] Navigated to: {page.url}")
             
             # Get page title
             title = await page.title()
-            print(f"✓ Page title: {title}")
+            print(f"[OK] Page title: {title}")
             
             # Test act (placeholder for now)
             try:
                 act_result = await page.act("Click the More information link")
-                print(f"✓ Act result: {act_result}")
+                print(f"[OK] Act result: {act_result}")
             except Exception as e:
-                print(f"✗ Act failed (expected with placeholder): {e}")
+                print(f"[FAIL] Act failed (expected with placeholder): {e}")
             
             # Test observe (placeholder for now)
             try:
                 observe_results = await page.observe()
-                print(f"✓ Observe found {len(observe_results)} elements")
+                print(f"[OK] Observe found {len(observe_results)} elements")
             except Exception as e:
-                print(f"✗ Observe failed (expected with placeholder): {e}")
+                print(f"[FAIL] Observe failed (expected with placeholder): {e}")
             
             # Test extract (placeholder for now)
             from pydantic import BaseModel
@@ -62,17 +62,17 @@ async def main():
             
             try:
                 extract_result = await page.extract(PageInfo)
-                print(f"✓ Extract result: {extract_result}")
+                print(f"[OK] Extract result: {extract_result}")
             except Exception as e:
-                print(f"✗ Extract failed (expected with placeholder): {e}")
+                print(f"[FAIL] Extract failed (expected with placeholder): {e}")
             
             # Wait a bit before closing
             await asyncio.sleep(2)
             
-        print("\n✓ All basic tests completed successfully!")
+        print("\n[OK] All basic tests completed successfully!")
         
     except Exception as e:
-        print(f"\n✗ Test failed with error: {e}")
+        print(f"\n[FAIL] Test failed with error: {e}")
         import traceback
         traceback.print_exc()
 

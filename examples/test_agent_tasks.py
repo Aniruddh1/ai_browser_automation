@@ -23,8 +23,8 @@ async def test_agent_youtube_search():
         verbose=2,
         model_name="gpt-4o",
         model_client_options={"api_key": os.getenv("OPENAI_API_KEY")}
-    ) as stagehand:
-        page = await stagehand.page()
+    ) as browser:
+        page = await browser.page()
         
         print("1. Creating agent and navigating to YouTube:")
         print("-" * 50)
@@ -80,8 +80,8 @@ async def test_agent_google_search():
         verbose=1,
         model_name="gpt-4o-mini",
         model_client_options={"api_key": os.getenv("OPENAI_API_KEY")}
-    ) as stagehand:
-        page = await stagehand.page()
+    ) as browser:
+        page = await browser.page()
         
         print("1. Multi-step Google search task:")
         print("-" * 50)
@@ -140,8 +140,8 @@ async def test_agent_form_filling():
         verbose=1,
         model_name="gpt-4o",
         model_client_options={"api_key": os.getenv("OPENAI_API_KEY")}
-    ) as stagehand:
-        page = await stagehand.page()
+    ) as browser:
+        page = await browser.page()
         
         print("1. Navigating to example form:")
         print("-" * 50)
@@ -166,9 +166,9 @@ async def test_agent_form_filling():
         for action in actions:
             try:
                 result = await page.act(action)
-                print(f"✓ {action}: {result.success}")
+                print(f"[OK] {action}: {result.success}")
             except Exception as e:
-                print(f"✗ {action}: Failed - {e}")
+                print(f"[FAIL] {action}: Failed - {e}")
 
 
 async def test_agent_workflow():
@@ -181,8 +181,8 @@ async def test_agent_workflow():
         model_name="gpt-4o",
         model_client_options={"api_key": os.getenv("OPENAI_API_KEY")},
         enable_caching=True  # Enable caching for efficiency
-    ) as stagehand:
-        page = await stagehand.page()
+    ) as browser:
+        page = await browser.page()
         
         print("Simulating agent workflow: Research Python libraries")
         print("=" * 50)
@@ -259,7 +259,7 @@ async def main():
         await test_agent_workflow()
         
         print("\n" + "=" * 70)
-        print("✓ All agent task tests completed!")
+        print("[OK] All agent task tests completed!")
         print("=" * 70)
         
         print("\nNote: These tests simulate what a fully-implemented agent would do.")
@@ -268,7 +268,7 @@ async def main():
         print("tasks autonomously without explicit act/observe calls.")
         
     except Exception as e:
-        print(f"\n✗ Agent task tests failed with error: {e}")
+        print(f"\n[FAIL] Agent task tests failed with error: {e}")
         import traceback
         traceback.print_exc()
 

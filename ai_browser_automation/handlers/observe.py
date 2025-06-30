@@ -3,10 +3,14 @@
 import json
 import re
 from typing import List, Dict, Any, Optional
+from pydantic import ValidationError
 
 from .base import BaseHandler
 from ..types import ObserveResult, ObserveOptions, EncodedId, LLMMessage
+from ..types.observe import ObserveElementSchema, ObserveResponseSchema, ActObserveResponseSchema
 from ..dom import get_clickable_elements, get_input_elements, get_page_text, clean_text
+from ..dom.scrollable import mark_scrollable_in_tree
+from ..dom.debug import draw_element_overlays
 from ..core.errors import LLMResponseError
 
 
@@ -77,6 +81,27 @@ class ObserveHandler(BaseHandler[List[ObserveResult]]):
                 found_count=len(results)
             )
             
+            # Draw debug overlays if debug mode is enabled
+            if options.debug_dom and results:
+                self._log_debug("Drawing debug overlays")
+                elements_for_overlay = [
+                    {
+                        'encodedId': r.encoded_id,
+                        'isScrollable': any(
+                            elem.get('isScrollable') 
+                            for elem in page_info['elements'] 
+                            if elem.get('encodedId') == r.encoded_id
+                        )
+                    }
+                    for r in results
+                ]
+                num_drawn = await draw_element_overlays(
+                    page._page, 
+                    elements_for_overlay, 
+                    page_info.get('xpath_map', {})
+                )
+                self._log_debug(f"Drew {num_drawn} debug overlays")
+            
             return results
             
         except Exception as e:
@@ -94,6 +119,10 @@ class ObserveHandler(BaseHandler[List[ObserveResult]]):
             # Get accessibility tree with XPath mappings
             self._log_debug("Getting accessibility tree with XPath mappings")
             simplified_tree, xpath_map, url_map = await get_accessibility_tree(page)
+            
+            # Mark scrollable elements
+            self._log_debug("Detecting scrollable elements")
+            simplified_tree = await mark_scrollable_in_tree(simplified_tree, xpath_map, page._page)
             
             # Get page text for context
             page_text = await page._page.evaluate("() => document.body ? document.body.innerText : ''")
@@ -188,12 +217,20 @@ Interactive Elements Found:
                     desc = f"- [{encoded_id}] {tag_name or role.upper()}"
                     if name:
                         desc += f": \"{name[:50]}\""
+                    if node.get('isScrollable'):
+                        desc += " [SCROLLABLE]"
                     prompt += desc + "\n"
                     
                 elif role in ['textbox', 'searchbox', 'combobox'] or tag_name in ['INPUT', 'TEXTAREA']:
                     desc = f"- [{encoded_id}] {tag_name or 'INPUT'}"
                     if name:
                         desc += f": \"{name}\""
+                    prompt += desc + "\n"
+                elif node.get('isScrollable'):
+                    # Include scrollable containers
+                    desc = f"- [{encoded_id}] {tag_name or 'DIV'} [SCROLLABLE CONTAINER]"
+                    if name:
+                        desc += f": \"{name[:50]}\""
                     prompt += desc + "\n"
         else:
             # Fallback: Using DOM elements
@@ -345,39 +382,55 @@ Return ONLY ONE element that best matches the action. Return a JSON object in th
                 self._log_error("Invalid response structure")
                 return []
             
-            # Try to parse as JSON
-            # Handle different response formats based on from_act flag
-            if from_act:
-                # For act observations, expect a single object
-                json_match = re.search(r'\{.*\}', content, re.DOTALL)
-                if json_match:
-                    elem_data = json.loads(json_match.group(0))
+            # Try to parse and validate using schemas
+            elements_data = []
+            
+            try:
+                if from_act:
+                    # For act observations, expect a single object
+                    json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                    if json_match:
+                        raw_data = json.loads(json_match.group(0))
+                    else:
+                        raw_data = json.loads(content)
+                    
+                    # Validate with schema
+                    validated = ActObserveResponseSchema(**raw_data)
+                    elements_data = [validated.dict()]
                 else:
-                    try:
-                        elem_data = json.loads(content)
-                    except json.JSONDecodeError:
-                        self._log_error(f"Failed to parse JSON from response: {content[:200]}")
-                        return []
-                
-                # Wrap single element in a list for consistent processing
-                elements_data = [elem_data] if isinstance(elem_data, dict) else []
-            else:
-                # For regular observations, expect an array
-                json_match = re.search(r'\[.*\]', content, re.DOTALL)
-                if json_match:
-                    elements_data = json.loads(json_match.group(0))
+                    # For regular observations, expect an array
+                    json_match = re.search(r'\[.*\]', content, re.DOTALL)
+                    if json_match:
+                        raw_data = json.loads(json_match.group(0))
+                    else:
+                        raw_data = json.loads(content)
+                    
+                    # Validate each element with schema
+                    for elem in raw_data:
+                        try:
+                            validated = ObserveElementSchema(**elem)
+                            elements_data.append(validated.dict())
+                        except ValidationError as e:
+                            self._log_debug(f"Skipping invalid element: {e}")
+                            continue
+                            
+            except (json.JSONDecodeError, ValidationError) as e:
+                self._log_error(f"Failed to parse/validate response: {e}")
+                # Try fallback regex parsing
+                if from_act:
+                    json_match = re.search(r'\{[^{}]*"elementId"[^{}]*\}', content, re.DOTALL)
                 else:
-                    # Fallback: try to parse the whole content
-                    try:
-                        elements_data = json.loads(content)
-                    except json.JSONDecodeError:
-                        self._log_error(f"Failed to parse JSON from response: {content[:200]}")
-                        return []
+                    json_match = re.search(r'\[[^\[\]]*\]', content, re.DOTALL)
                 
-                # Ensure we have a list
-                if not isinstance(elements_data, list):
-                    self._log_error(f"Expected list of elements, got {type(elements_data)}")
-                    return []
+                if json_match:
+                    try:
+                        raw_data = json.loads(json_match.group(0))
+                        if isinstance(raw_data, list):
+                            elements_data = raw_data
+                        else:
+                            elements_data = [raw_data]
+                    except:
+                        return []
             
             # Convert to ObserveResult objects
             results = []
@@ -401,7 +454,7 @@ Return ONLY ONE element that best matches the action. Return a JSON object in th
                 # Build selector - always use XPath from mapping
                 selector = None
                 if encoded_id in xpath_map:
-                    # Add xpath= prefix to match TypeScript
+                    # Add xpath= prefix for selector format
                     selector = f"xpath={xpath_map[encoded_id]}"
                 elif element_info:
                     if 'element' in element_info:

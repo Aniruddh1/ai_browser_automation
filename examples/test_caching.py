@@ -25,8 +25,8 @@ async def test_caching():
         enable_caching=True,  # Enable caching
         model_name="gpt-4o-mini",
         model_client_options={"api_key": os.getenv("OPENAI_API_KEY")}
-    ) as stagehand:
-        page = await stagehand.page()
+    ) as browser:
+        page = await browser.page()
         await page.goto("https://www.google.com")
 
         print("1. First action - should call LLM:")
@@ -115,8 +115,8 @@ async def test_caching_disabled():
         enable_caching=False,  # Disable caching
         model_name="gpt-4o-mini",
         model_client_options={"api_key": os.getenv("OPENAI_API_KEY")}
-    ) as stagehand:
-        page = await stagehand.page()
+    ) as browser:
+        page = await browser.page()
         await page.goto("https://www.google.com")
 
         print("1. First action - should call LLM:")
@@ -150,7 +150,7 @@ async def main():
     await test_caching()
     await test_caching_disabled()
     
-    print("\n✓ Caching tests completed!")
+    print("\n[OK] Caching tests completed!")
     
     # Check cache files
     cache_dir = Path.cwd() / "tmp" / ".cache"

@@ -2,13 +2,13 @@
 
 ## Overview
 
-This document explains how Stagehand-py uses Chrome DevTools Protocol (CDP) and XPath to identify and interact with web elements. This implementation matches the TypeScript version's behavior for reliable element identification across different websites.
+This document explains how AI Browser Automation uses Chrome DevTools Protocol (CDP) and XPath to identify and interact with web elements. This implementation provides reliable element identification across different websites.
 
 ## Architecture Overview
 
 ```
 ┌─────────────────┐
-│   StagehandPage │
+│ AIBrowserAutomationPage │
 ├─────────────────┤
 │ Frame Tracking  │
 │ CDP Session     │
@@ -38,7 +38,7 @@ This document explains how Stagehand-py uses Chrome DevTools Protocol (CDP) and 
 Each frame (including iframes) gets a unique ordinal number:
 
 ```python
-# In StagehandPage
+# In AIBrowserAutomationPage
 self._frame_ordinals: Dict[Optional[str], int] = {None: 0}  # Main frame = 0
 self._next_frame_ordinal = 1
 

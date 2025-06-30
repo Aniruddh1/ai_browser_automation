@@ -26,8 +26,8 @@ async def demonstrate_cdp():
         verbose=2,  # Verbose logging shows CDP details
         model_name="gpt-4o-mini",
         model_client_options={"api_key": os.getenv("OPENAI_API_KEY")}
-    ) as stagehand:
-        page = await stagehand.page()
+    ) as browser:
+        page = await browser.page()
         
         # Navigate to a simple page
         print("1. Navigating to example.com...")
@@ -59,12 +59,12 @@ async def demonstrate_cdp():
         action_result = await page.act("Click the 'More information' link")
         
         if action_result.success:
-            print(f"\n   ✓ Successfully clicked!")
+            print(f"\n   [OK] Successfully clicked!")
             print(f"   - Action: {action_result.action}")
             print(f"   - Selector used: {action_result.selector}")
             print(f"   - New URL: {page.url}")
         else:
-            print(f"\n   ✗ Action failed: {action_result.error}")
+            print(f"\n   [FAIL] Action failed: {action_result.error}")
         
         # Show CDP internals (if you want to see raw data)
         print("\n5. CDP Internals (for debugging):")

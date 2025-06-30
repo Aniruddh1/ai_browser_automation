@@ -8,6 +8,15 @@ import json
 if TYPE_CHECKING:
     from ..core import AIBrowserAutomationPage
 
+from ..dom.xpath import (
+    generate_xpath_strategies,
+    validate_xpath_uniqueness,
+    find_unique_xpath,
+    build_positional_xpath,
+    escape_xpath_string,
+    XPATH_GENERATION_SCRIPT
+)
+
 
 class AccessibilityTreeBuilder:
     """Build accessibility trees and XPath mappings using CDP."""
@@ -40,35 +49,43 @@ class AccessibilityTreeBuilder:
         if not self.cdp_session:
             raise RuntimeError("CDP session not initialized")
             
-        # Enable necessary CDP domains
-        await self.cdp_session.send("Accessibility.enable")
-        await self.cdp_session.send("DOM.enable")
+        # Enable necessary CDP domains using CDP manager
+        if self.batch_cdp_calls:
+            await asyncio.gather(
+                cdp_manager.execute(self.cdp_session, "Accessibility.enable"),
+                cdp_manager.execute(self.cdp_session, "DOM.enable")
+            )
+        else:
+            await self.cdp_session.send("Accessibility.enable")
+            await self.cdp_session.send("DOM.enable")
         
         try:
-            # Get accessibility tree
-            ax_tree_response = await self.cdp_session.send("Accessibility.getFullAXTree")
-            ax_nodes = ax_tree_response.get("nodes", [])
+            # Collect accessibility trees from all frames
+            frame_snapshots = await self._collect_frame_snapshots()
             
-            # Build backend ID mappings
-            tag_name_map, xpath_map = await self._build_backend_id_maps()
-            
-            # Build hierarchical tree
-            tree = self._build_hierarchical_tree(ax_nodes)
-            
-            # Simplify tree
-            simplified = self._simplify_tree(tree, tag_name_map)
-            
-            # Convert to encoded ID format
+            # Merge all frame trees into a single tree
+            simplified = []
             encoded_xpath_map = {}
-            for backend_id, xpath in xpath_map.items():
-                # For now, assume main frame (None) - we'll enhance this for iframes later
-                encoded_id = self.ai_browser_automation_page.encode_with_frame_id(None, backend_id)
-                encoded_xpath_map[encoded_id] = xpath
-                
-            # Build URL map with frame ordinals
             url_map = {}
-            for frame_id, ordinal in self.ai_browser_automation_page._frame_ordinals.items():
-                url_map[str(ordinal)] = self.page.url  # For now, use main page URL
+            
+            for snapshot in frame_snapshots:
+                # Add frame tree to overall tree
+                simplified.extend(snapshot['simplified_tree'])
+                
+                # Merge XPath mappings with frame prefixes
+                for encoded_id, xpath in snapshot['xpath_map'].items():
+                    frame_prefix = snapshot.get('frame_xpath', '')
+                    if frame_prefix and frame_prefix != '/':
+                        # Prepend frame path to XPath
+                        encoded_xpath_map[encoded_id] = frame_prefix + xpath
+                    else:
+                        encoded_xpath_map[encoded_id] = xpath
+                
+                # Add frame URL to map
+                if snapshot.get('frame_id'):
+                    url_map[str(snapshot['frame_ordinal'])] = snapshot['frame_url']
+                else:
+                    url_map['0'] = snapshot['frame_url']  # Main frame
                 
             return simplified, encoded_xpath_map, url_map
             
@@ -89,20 +106,24 @@ class AccessibilityTreeBuilder:
         """
         tag_name_map = {}
         xpath_map = {}
+        element_info_map = {}  # Store element info for sophisticated XPath generation
         
         # Get the full DOM tree
         try:
             dom_response = await self.cdp_session.send("DOM.getDocument", {"depth": -1})
             root = dom_response.get("root", {})
             
-            def traverse_node(node: Dict[str, Any], parent_xpath: str = "", position_map: Dict[str, int] = None) -> None:
+            def traverse_node(node: Dict[str, Any], parent_xpath: str = "", position_map: Dict[str, int] = None, element_path: List[Dict[str, str]] = None) -> None:
                 """Recursively traverse DOM nodes."""
                 if position_map is None:
                     position_map = {}
+                if element_path is None:
+                    element_path = []
                     
                 backend_id = node.get("backendNodeId")
                 node_type = node.get("nodeType")
                 node_name = node.get("nodeName", "").lower()
+                attributes = node.get("attributes", [])
                 
                 # Build XPath for this node
                 if node_type == 1:  # ELEMENT_NODE
@@ -111,20 +132,52 @@ class AccessibilityTreeBuilder:
                     position = position_map.get(parent_key, 0) + 1
                     position_map[parent_key] = position
                     
-                    if parent_xpath:
-                        xpath = f"{parent_xpath}/{node_name}[{position}]"
-                    else:
-                        xpath = f"/{node_name}[1]"
-                        
+                    # Build element path for positional XPath
+                    current_path = element_path + [{'tagName': node_name, 'index': position}]
+                    
                     if backend_id:
                         tag_name_map[backend_id] = node_name
-                        xpath_map[backend_id] = xpath
+                        
+                        # Parse attributes into dictionary
+                        attr_dict = {}
+                        for i in range(0, len(attributes), 2):
+                            if i + 1 < len(attributes):
+                                attr_dict[attributes[i]] = attributes[i + 1]
+                        
+                        # Store element info for sophisticated XPath generation
+                        element_info = {
+                            'tagName': node_name,
+                            'id': attr_dict.get('id', ''),
+                            'class': attr_dict.get('class', ''),
+                            'name': attr_dict.get('name', ''),
+                            'role': attr_dict.get('role', ''),
+                            'text': '',  # Will be populated later if needed
+                            'path': current_path,
+                            'attributes': attr_dict
+                        }
+                        
+                        # Add data attributes
+                        for attr_name in ['data-testid', 'data-test', 'data-qa', 'data-id', 'data-cy']:
+                            if attr_name in attr_dict:
+                                element_info[attr_name] = attr_dict[attr_name]
+                        
+                        element_info_map[backend_id] = element_info
+                        
+                        # Generate sophisticated XPath strategies
+                        xpaths = generate_xpath_strategies(element_info, node_name)
+                        
+                        # Add positional XPath as fallback
+                        positional_xpath = build_positional_xpath(current_path)
+                        xpaths.append(positional_xpath)
+                        
+                        # For now, use the first XPath (we'll validate later)
+                        xpath_map[backend_id] = xpaths[0] if xpaths else positional_xpath
                         
                     # Traverse children
                     children = node.get("children", [])
                     child_position_map = {}
                     for child in children:
-                        traverse_node(child, xpath, child_position_map)
+                        traverse_node(child, parent_xpath + f"/{node_name}[{position}]", child_position_map, current_path)
                         
                 elif node_type == 3:  # TEXT_NODE
                     # Text nodes get special XPath
@@ -135,19 +188,456 @@ class AccessibilityTreeBuilder:
                     xpath = f"{parent_xpath}/text()[{position}]"
                     if backend_id:
                         xpath_map[backend_id] = xpath
+                elif node_type == 8:  # COMMENT_NODE
+                    # Comment nodes get special XPath
+                    parent_key = f"{parent_xpath}:comment()"
+                    position = position_map.get(parent_key, 0) + 1
+                    position_map[parent_key] = position
+                    
+                    xpath = f"{parent_xpath}/comment()[{position}]"
+                    if backend_id:
+                        xpath_map[backend_id] = xpath
                 else:
                     # For other node types (like document nodes), still traverse children
                     children = node.get("children", [])
                     for child in children:
-                        traverse_node(child, parent_xpath, position_map)
+                        traverse_node(child, parent_xpath, position_map, element_path)
                         
             traverse_node(root)
+            
+            # Now validate and find unique XPaths for elements
+            for backend_id, element_info in element_info_map.items():
+                unique_xpath = await find_unique_xpath(self.page, element_info, element_info['tagName'])
+                if unique_xpath:
+                    xpath_map[backend_id] = unique_xpath
             
         except Exception as e:
             # Log error but continue
             print(f"Error building backend ID maps: {e}")
             
         return tag_name_map, xpath_map
+        
+    async def _collect_frame_snapshots(self) -> List[Dict[str, Any]]:
+        """
+        Collect accessibility tree snapshots from all frames.
+        
+        Returns:
+            List of frame snapshots containing tree and mapping data
+        """
+        snapshots = []
+        
+        # Process main frame first
+        main_frame = self.page.main_frame
+        main_snapshot = await self._get_frame_snapshot(main_frame, None, '/', 0)
+        if main_snapshot:
+            snapshots.append(main_snapshot)
+        
+        # Process child frames recursively
+        frame_ordinal = 1
+        for child_frame in main_frame.child_frames:
+            child_snapshots = await self._collect_child_frame_snapshots(
+                child_frame, frame_ordinal
+            )
+            snapshots.extend(child_snapshots)
+            frame_ordinal += len(child_snapshots)
+        
+        return snapshots
+    
+    async def _collect_child_frame_snapshots(
+        self, frame: Any, ordinal_start: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Recursively collect snapshots from a frame and its children.
+        
+        Args:
+            frame: The frame to process
+            ordinal_start: Starting ordinal number for frames
+            
+        Returns:
+            List of frame snapshots
+        """
+        snapshots = []
+        current_ordinal = ordinal_start
+        
+        # Get frame's backend node ID and XPath
+        try:
+            frame_backend_id = await self._get_frame_backend_node_id(frame)
+            frame_xpath = await self._get_frame_xpath(frame)
+            
+            # Get snapshot for this frame
+            snapshot = await self._get_frame_snapshot(
+                frame, frame_backend_id, frame_xpath, current_ordinal
+            )
+            if snapshot:
+                snapshots.append(snapshot)
+                current_ordinal += 1
+            
+            # Process child frames
+            for child_frame in frame.child_frames:
+                child_snapshots = await self._collect_child_frame_snapshots(
+                    child_frame, current_ordinal
+                )
+                snapshots.extend(child_snapshots)
+                current_ordinal += len(child_snapshots)
+                
+        except Exception as e:
+            print(f"Error processing frame {frame.url}: {e}")
+            
+        return snapshots
+    
+    async def _get_frame_snapshot(
+        self, frame: Any, backend_node_id: Optional[int], 
+        frame_xpath: str, ordinal: int
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get accessibility tree snapshot for a single frame.
+        
+        Args:
+            frame: The frame to process
+            backend_node_id: Backend node ID of the frame element
+            frame_xpath: XPath to the frame element
+            ordinal: Frame ordinal number
+            
+        Returns:
+            Frame snapshot dictionary or None if failed
+        """
+        try:
+            # Get CDP session from pool for this frame
+            frame_session = await cdp_manager.get_session(frame.page, frame)
+            
+            # Enable domains
+            await frame_session.send("Accessibility.enable")
+            await frame_session.send("DOM.enable")
+            
+            try:
+                # Get accessibility tree for frame
+                ax_response = await frame_session.send("Accessibility.getFullAXTree")
+                ax_nodes = ax_response.get("nodes", [])
+                
+                # Build backend ID mappings for frame
+                tag_name_map, xpath_map = await self._build_frame_backend_id_maps(
+                    frame_session, frame.url
+                )
+                
+                # Build hierarchical tree
+                tree = self._build_hierarchical_tree(ax_nodes)
+                
+                # Get scrollable elements for this frame
+                scrollable_backend_ids = await self._get_scrollable_backend_ids(frame_session)
+                
+                # Simplify tree with scrollable decoration
+                simplified = self._simplify_tree(tree, tag_name_map, scrollable_backend_ids)
+                
+                # Encode IDs with frame information
+                encoded_xpath_map = {}
+                frame_id = await self._get_cdp_frame_id(frame)
+                
+                for backend_id, xpath in xpath_map.items():
+                    encoded_id = self.ai_browser_automation_page.encode_with_frame_id(
+                        frame_id, backend_id
+                    )
+                    encoded_xpath_map[encoded_id] = xpath
+                
+                return {
+                    'simplified_tree': simplified,
+                    'xpath_map': encoded_xpath_map,
+                    'frame_url': frame.url,
+                    'frame_xpath': frame_xpath,
+                    'frame_id': frame_id,
+                    'frame_ordinal': ordinal,
+                    'backend_node_id': backend_node_id
+                }
+                
+            finally:
+                await frame_session.send("Accessibility.disable")
+                await frame_session.send("DOM.disable")
+                # Session detach handled by pool
+                
+        except Exception as e:
+            print(f"Error getting frame snapshot: {e}")
+            return None
+    
+    async def _get_frame_backend_node_id(self, frame: Any) -> Optional[int]:
+        """
+        Get the backend node ID of the iframe element containing a frame.
+        
+        Args:
+            frame: The frame to find the container for
+            
+        Returns:
+            Backend node ID or None if not found
+        """
+        if frame == self.page.main_frame:
+            return None
+            
+        try:
+            # Get CDP frame ID
+            frame_id = await self._get_cdp_frame_id(frame)
+            if not frame_id:
+                return None
+                
+            # Get frame owner
+            response = await self.cdp_session.send("DOM.getFrameOwner", {
+                "frameId": frame_id
+            })
+            return response.get("backendNodeId")
+            
+        except Exception as e:
+            print(f"Error getting frame backend node ID: {e}")
+            return None
+    
+    async def _get_frame_xpath(self, frame: Any) -> str:
+        """
+        Get the XPath to the iframe element containing a frame.
+        
+        Args:
+            frame: The frame to find the XPath for
+            
+        Returns:
+            XPath string
+        """
+        if frame == self.page.main_frame:
+            return '/'
+            
+        try:
+            # Use frame locator to get XPath
+            frame_element = frame.frame_element()
+            if frame_element:
+                xpath_info = await frame_element.evaluate(XPATH_GENERATION_SCRIPT, frame_element)
+                return xpath_info.get('unique_xpath') or xpath_info.get('positional_xpath', '/')
+                
+        except Exception:
+            pass
+            
+        return '/'
+    
+    async def _get_cdp_frame_id(self, frame: Any) -> Optional[str]:
+        """
+        Get the CDP frame ID for a Playwright frame.
+        
+        Args:
+            frame: The Playwright frame
+            
+        Returns:
+            CDP frame ID or None
+        """
+        try:
+            # Get the frame's execution context
+            context = await frame.evaluate_handle('() => window')
+            
+            # Get CDP session for the frame
+            if hasattr(context, '_channel'):
+                # Try to get frame ID from channel
+                channel = context._channel
+                if hasattr(channel, '_connection'):
+                    # Look for frame info in the connection
+                    for obj_id, obj in channel._connection._objects.items():
+                        if hasattr(obj, '_type') and obj._type == 'Frame' and obj == frame:
+                            # Found the frame, get its CDP ID
+                            if hasattr(obj, '_initializer') and 'frameId' in obj._initializer:
+                                return obj._initializer['frameId']
+            
+            # Fallback: Try to get frame ID via CDP
+            if frame == self.page.main_frame:
+                # Main frame has a special ID
+                page_target = self.page.context.browser._connection._sessions.get(self.page._channel._guid)
+                if page_target:
+                    return page_target._target_id
+            else:
+                # For child frames, try to get via DOM.getFrameOwner
+                parent_frame = frame.parent_frame
+                if parent_frame:
+                    # Get iframe element in parent frame
+                    frame_element = await frame.frame_element()
+                    if frame_element:
+                        # Get backend node ID of iframe element
+                        backend_id = await frame_element.evaluate(
+                            'element => window.__getCDPNodeId ? window.__getCDPNodeId(element) : null'
+                        )
+                        if backend_id:
+                            # Query CDP for frame ID
+                            response = await self.cdp_session.send('DOM.describeNode', {
+                                'backendNodeId': backend_id
+                            })
+                            if 'frameId' in response:
+                                return response['frameId']
+            
+            # Last resort: use internal GUID
+            return getattr(frame, '_guid', None)
+            
+        except Exception as e:
+            print(f"Error getting CDP frame ID: {e}")
+            return None
+    
+    async def _build_frame_backend_id_maps(
+        self, session: CDPSession, frame_url: str
+    ) -> Tuple[Dict[int, str], Dict[int, str]]:
+        """
+        Build backend ID maps for a specific frame using its CDP session.
+        
+        Args:
+            session: CDP session for the frame
+            frame_url: URL of the frame
+            
+        Returns:
+            Tuple of (tag_name_map, xpath_map)
+        """
+        # Similar to _build_backend_id_maps but uses the frame's session
+        try:
+            # Use the provided session instead of self.cdp_session
+            tag_name_map = {}
+            xpath_map = {}
+            element_info_map = {}
+            
+            # Get the full DOM tree for this frame using CDP manager
+            dom_response = await cdp_manager.execute(
+                session,
+                "DOM.getDocument",
+                {"depth": -1},
+                batch=False  # Don't batch this call
+            )
+            root = dom_response.get("root", {})
+            
+            # Use the same traverse_node logic but with frame session
+            def traverse_node(node: Dict[str, Any], parent_xpath: str = "", position_map: Dict[str, int] = None, element_path: List[Dict[str, str]] = None) -> None:
+                if position_map is None:
+                    position_map = {}
+                if element_path is None:
+                    element_path = []
+                    
+                backend_id = node.get("backendNodeId")
+                node_type = node.get("nodeType")
+                node_name = node.get("nodeName", "").lower()
+                attributes = node.get("attributes", [])
+                
+                if node_type == 1:  # ELEMENT_NODE
+                    parent_key = f"{parent_xpath}:{node_name}"
+                    position = position_map.get(parent_key, 0) + 1
+                    position_map[parent_key] = position
+                    
+                    current_path = element_path + [{'tagName': node_name, 'index': position}]
+                    
+                    if backend_id:
+                        tag_name_map[backend_id] = node_name
+                        
+                        # Parse attributes
+                        attr_dict = {}
+                        for i in range(0, len(attributes), 2):
+                            if i + 1 < len(attributes):
+                                attr_dict[attributes[i]] = attributes[i + 1]
+                        
+                        element_info = {
+                            'tagName': node_name,
+                            'id': attr_dict.get('id', ''),
+                            'class': attr_dict.get('class', ''),
+                            'name': attr_dict.get('name', ''),
+                            'role': attr_dict.get('role', ''),
+                            'text': '',
+                            'path': current_path,
+                            'attributes': attr_dict
+                        }
+                        
+                        for attr_name in ['data-testid', 'data-test', 'data-qa', 'data-id', 'data-cy']:
+                            if attr_name in attr_dict:
+                                element_info[attr_name] = attr_dict[attr_name]
+                        
+                        element_info_map[backend_id] = element_info
+                        
+                        # Generate XPath strategies
+                        xpaths = generate_xpath_strategies(element_info, node_name)
+                        positional_xpath = build_positional_xpath(current_path)
+                        xpaths.append(positional_xpath)
+                        
+                        xpath_map[backend_id] = xpaths[0] if xpaths else positional_xpath
+                        
+                    # Traverse children
+                    children = node.get("children", [])
+                    child_position_map = {}
+                    for child in children:
+                        traverse_node(child, parent_xpath + f"/{node_name}[{position}]", child_position_map, current_path)
+                        
+                elif node_type == 3:  # TEXT_NODE
+                    parent_key = f"{parent_xpath}:text()"
+                    position = position_map.get(parent_key, 0) + 1
+                    position_map[parent_key] = position
+                    
+                    xpath = f"{parent_xpath}/text()[{position}]"
+                    if backend_id:
+                        xpath_map[backend_id] = xpath
+                elif node_type == 8:  # COMMENT_NODE
+                    parent_key = f"{parent_xpath}:comment()"
+                    position = position_map.get(parent_key, 0) + 1
+                    position_map[parent_key] = position
+                    
+                    xpath = f"{parent_xpath}/comment()[{position}]"
+                    if backend_id:
+                        xpath_map[backend_id] = xpath
+                else:
+                    children = node.get("children", [])
+                    for child in children:
+                        traverse_node(child, parent_xpath, position_map, element_path)
+                        
+            traverse_node(root)
+            
+            # Validate XPaths for frame context (simplified for now)
+            # In a real implementation, we'd need to validate against the frame's document
+            
+            return tag_name_map, xpath_map
+            
+        except Exception as e:
+            print(f"Error building frame backend ID maps: {e}")
+            return {}, {}
+    
+    async def _get_scrollable_backend_ids(self, session: CDPSession) -> set:
+        """
+        Get backend IDs of scrollable elements in a frame.
+        
+        Args:
+            session: CDP session for the frame
+            
+        Returns:
+            Set of backend node IDs for scrollable elements
+        """
+        scrollable_ids = set()
+        
+        try:
+            # Execute script to find scrollable elements
+            result = await session.send("Runtime.evaluate", {
+                "expression": """
+                    (() => {
+                        const scrollables = [];
+                        const elements = document.querySelectorAll('*');
+                        
+                        for (const element of elements) {
+                            const style = window.getComputedStyle(element);
+                            const overflow = style.overflow + style.overflowY + style.overflowX;
+                            
+                            if (overflow.includes('auto') || overflow.includes('scroll') || overflow.includes('overlay')) {
+                                const hasScroll = element.scrollHeight > element.clientHeight || 
+                                                element.scrollWidth > element.clientWidth;
+                                if (hasScroll) {
+                                    // Try to get backend node ID
+                                    const backendId = element.__backendNodeId || element.getAttribute('__backendNodeId');
+                                    if (backendId) {
+                                        scrollables.push(parseInt(backendId));
+                                    }
+                                }
+                            }
+                        }
+                        
+                        return scrollables;
+                    })()
+                """,
+                "returnByValue": True
+            })
+            
+            if result.get('result', {}).get('value'):
+                scrollable_ids.update(result['result']['value'])
+                
+        except Exception as e:
+            print(f"Error getting scrollable backend IDs: {e}")
+            
+        return scrollable_ids
         
     def _build_hierarchical_tree(self, nodes: List[Dict]) -> Dict[str, Any]:
         """
@@ -183,7 +673,7 @@ class AccessibilityTreeBuilder:
                 
         return root or {}
         
-    def _simplify_tree(self, tree: Dict[str, Any], tag_name_map: Dict[int, str]) -> List[Dict[str, Any]]:
+    def _simplify_tree(self, tree: Dict[str, Any], tag_name_map: Dict[int, str], scrollable_backend_ids: Optional[set] = None) -> List[Dict[str, Any]]:
         """
         Simplify accessibility tree by flattening and cleaning.
         
@@ -216,6 +706,13 @@ class AccessibilityTreeBuilder:
                     flatten(child, depth)
                 return
                 
+            # Check if node is scrollable and decorate role
+            if scrollable_backend_ids and backend_id in scrollable_backend_ids:
+                if role and role not in ["generic", "none"]:
+                    role = f"scrollable, {role}"
+                else:
+                    role = "scrollable"
+            
             # Create simplified node with encoded ID
             simplified_node = {
                 "nodeId": backend_id,

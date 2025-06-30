@@ -22,6 +22,7 @@ from .errors import (
     TimeoutError,
     UnsupportedOperationError,
 )
+from .cdp_integration import CDPIntegration
 
 if TYPE_CHECKING:
     from .context import AIBrowserAutomationContext
@@ -31,12 +32,13 @@ if TYPE_CHECKING:
 T = TypeVar('T')
 
 
-class AIBrowserAutomationPage:
+class AIBrowserAutomationPage(CDPIntegration):
     """
-    Enhanced page that wraps Playwright's Page with AI capabilities.
+    Enhanced page that wraps Playwright's Page with AI capabilities and CDP integration.
     
     Provides act(), extract(), and observe() methods for natural language
-    browser automation.
+    browser automation, plus advanced CDP features like network interception,
+    performance monitoring, and event listeners.
     """
     
     def __init__(self, page: Page, context: 'AIBrowserAutomationContext'):

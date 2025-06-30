@@ -23,8 +23,8 @@ async def test_simple_search():
         verbose=1,
         model_name="gpt-4o-mini",
         model_client_options={"api_key": os.getenv("OPENAI_API_KEY")}
-    ) as stagehand:
-        page = await stagehand.page()
+    ) as browser:
+        page = await browser.page()
         
         # Test on DuckDuckGo instead of Google
         print("1. Testing on DuckDuckGo:")
@@ -99,7 +99,7 @@ async def main():
         return
     
     await test_simple_search()
-    print("\n✓ Search test completed!")
+    print("\n[OK] Search test completed!")
 
 
 if __name__ == "__main__":

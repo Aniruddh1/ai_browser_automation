@@ -23,8 +23,8 @@ async def test_basic_agent():
         verbose=2,
         model_name="gpt-4o",
         model_client_options={"api_key": os.getenv("OPENAI_API_KEY")}
-    ) as stagehand:
-        page = await stagehand.page()
+    ) as browser:
+        page = await browser.page()
         
         print("1. Testing agent creation:")
         print("-" * 50)
@@ -88,8 +88,8 @@ async def test_agent_error_handling():
         verbose=1,
         model_name="gpt-4o-mini",
         model_client_options={"api_key": os.getenv("OPENAI_API_KEY")}
-    ) as stagehand:
-        page = await stagehand.page()
+    ) as browser:
+        page = await browser.page()
         
         print("1. Testing with empty page:")
         print("-" * 50)
@@ -111,8 +111,8 @@ async def test_agent_models():
         verbose=1,
         model_name="gpt-4o",
         model_client_options={"api_key": os.getenv("OPENAI_API_KEY")}
-    ) as stagehand:
-        page = await stagehand.page()
+    ) as browser:
+        page = await browser.page()
         await page.goto("https://www.example.com")
         
         # Test model detection
@@ -132,7 +132,7 @@ async def test_agent_models():
             
             print(f"Expected type: {expected_type}")
             print(f"Detected type: {detected_type}")
-            print(f"Match: {'✓' if detected_type == expected_type else '✗'}")
+            print(f"Match: {'PASS' if detected_type == expected_type else 'FAIL'}")
 
 
 async def main():
@@ -147,12 +147,12 @@ async def main():
         await test_agent_error_handling()
         await test_agent_models()
         
-        print("\n✓ Agent tests completed!")
+        print("\nPASS Agent tests completed!")
         print("\nNote: The agent implementations are currently placeholders.")
         print("Full computer use functionality will be added when the APIs are available.")
         
     except Exception as e:
-        print(f"\n✗ Agent tests failed with error: {e}")
+        print(f"\nFAIL Agent tests failed with error: {e}")
         import traceback
         traceback.print_exc()
 

@@ -37,14 +37,14 @@ if __name__ == "__main__":
 
 ## Features
 
-- 🎭 Built on Playwright for robust browser automation
-- 🤖 Natural language actions with `act()`
-- 📊 Structured data extraction with `extract()`
-- 👁️ Element detection with `observe()`
-- 🧠 Multiple LLM providers (OpenAI, Anthropic, Google)
-- 💾 Built-in caching for improved performance
-- 🔧 Extensible architecture
-- 🎯 CDP-based element identification with XPath mapping
+- Built on Playwright for robust browser automation
+- Natural language actions with `act()`
+- Structured data extraction with `extract()`
+- Element detection with `observe()`
+- Multiple LLM providers (OpenAI, Anthropic, Google)
+- Built-in caching for improved performance
+- Extensible architecture
+- CDP-based element identification with XPath mapping
 
 ## How It Works
 

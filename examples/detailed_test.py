@@ -39,8 +39,8 @@ async def main():
     print("\n2. Testing with AIBrowserAutomation:")
     print("-" * 50)
     
-    async with AIBrowserAutomation(headless=True, verbose=1) as stagehand:
-        page = await stagehand.page()
+    async with AIBrowserAutomation(headless=True, verbose=1) as browser:
+        page = await browser.page()
         await page.goto("https://example.com")
         
         # Test observe
@@ -58,8 +58,8 @@ async def main():
             # Get the handler directly
             from ai_browser_automation.handlers import ObserveHandler
             handler = ObserveHandler(
-                logger=stagehand.logger.child(component="page"),
-                llm_provider=stagehand.llm_provider
+                logger=browser.logger.child(component="page"),
+                llm_provider=browser.llm_provider
             )
             
             # Get page info

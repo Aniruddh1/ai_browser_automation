@@ -114,6 +114,7 @@ class ObserveOptions(BaseModel):
     use_cache: bool = True
     return_action: bool = False  # Whether to return action details for act method
     from_act: bool = False  # Whether this observe is called from act method
+    debug_dom: bool = False  # Whether to draw visual overlays on observed elements
 
 
 class InitResult(BaseModel):

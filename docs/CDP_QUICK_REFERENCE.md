@@ -20,31 +20,31 @@ await page.observe("Find all form inputs")
 
 | File | Purpose |
 |------|---------|
-| `stagehand/a11y/utils.py` | CDP session & accessibility tree building |
-| `stagehand/core/page.py` | Frame ordinal tracking |
-| `stagehand/handlers/observe.py` | LLM prompting & XPath resolution |
-| `stagehand/handlers/utils/act_utils.py` | XPath selector cleaning |
+| `ai_browser_automation/a11y/utils.py` | CDP session & accessibility tree building |
+| `ai_browser_automation/core/page.py` | Frame ordinal tracking |
+| `ai_browser_automation/handlers/observe.py` | LLM prompting & XPath resolution |
+| `ai_browser_automation/handlers/utils/act_utils.py` | XPath selector cleaning |
 
 ## Important Functions
 
 ### 1. Get Accessibility Tree
 ```python
-from stagehand.a11y import get_accessibility_tree
+from ai_browser_automation.a11y import get_accessibility_tree
 
 # Returns: (simplified_tree, xpath_map, url_map)
-nodes, xpaths, urls = await get_accessibility_tree(stagehand_page)
+nodes, xpaths, urls = await get_accessibility_tree(ai_browser_automation_page)
 ```
 
 ### 2. Frame Ordinal Encoding
 ```python
-# In StagehandPage
+# In AIBrowserAutomationPage
 encoded_id = page.encode_with_frame_id(frame_id=None, backend_id=123)
 # Returns: "0-123" for main frame
 ```
 
 ### 3. Clean XPath Selector
 ```python
-from stagehand.handlers.utils.act_utils import clean_selector
+from ai_browser_automation.handlers.utils.act_utils import clean_selector
 
 cleaned = clean_selector("xpath=/html/body/button[1]")
 # Returns: "/html/body/button[1]"
@@ -110,7 +110,7 @@ await page.act("Click the login button")
 ### 3. Debugging CDP
 ```python
 # Enable verbose logging
-stagehand = Stagehand(verbose=2)
+browser = AIBrowserAutomation(verbose=2)
 
 # Check if CDP is working
 try:
@@ -149,14 +149,14 @@ results = await page.observe("Find element again")
 3. **Fallback exists** if CDP fails (DOM scraping)
 4. **One CDP session** per page (reused)
 
-## Key Differences from TypeScript
+## Implementation Details
 
-| Feature | TypeScript | Python |
-|---------|------------|---------|
-| CDP Access | Via Playwright CDP | Same |
-| Frame Tracking | Global state | Per-page state |
-| XPath Building | Recursive | Same algorithm |
-| Error Handling | Throws | Fallback to DOM |
+| Feature | Description |
+|---------|-------------|
+| CDP Access | Via Playwright CDP |
+| Frame Tracking | Per-page state management |
+| XPath Building | Recursive algorithm |
+| Error Handling | Graceful fallback to DOM |
 
 ## Example: Complete Debug Trace
 
@@ -185,4 +185,4 @@ await page.act("Click submit")
 
 - See `CDP_XPATH_IMPLEMENTATION.md` for deep dive
 - See `CDP_WORKFLOW_DIAGRAM.md` for visual flow
-- Run `examples/test_cdp_xpath.py` for working example
+- Run `examples/cdp_demo.py` for working example

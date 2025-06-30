@@ -353,22 +353,54 @@ def build_selector_from_attributes(attributes: Dict[str, str]) -> str:
     return ''.join(selector_parts) if selector_parts else ''
 
 
+# Unicode constants for text cleaning
+PUA_START = 0xE000
+PUA_END = 0xF8FF
+NBSP_CHARS = {0x00A0, 0x202F, 0x2007, 0xFEFF}  # Various non-breaking space characters
+
+
 def clean_text(text: str) -> str:
     """
-    Clean text content for display.
+    Clean text content for display by removing private-use unicode characters,
+    normalizing whitespace, and trimming the result.
     
     Args:
         text: Raw text content
         
     Returns:
-        Cleaned text
+        Cleaned text with PUA characters removed, NBSP variants collapsed,
+        consecutive spaces merged, and leading/trailing whitespace trimmed.
     """
-    # Remove extra whitespace
-    text = re.sub(r'\s+', ' ', text)
-    # Remove zero-width characters
-    text = re.sub(r'[\u200b\u200c\u200d\ufeff]', '', text)
-    # Trim
-    return text.strip()
+    if not text:
+        return ""
+    
+    # Remove PUA characters and normalize whitespace in a single pass
+    output = []
+    prev_was_space = False
+    
+    for char in text:
+        code = ord(char)
+        
+        # Skip PUA characters
+        if PUA_START <= code <= PUA_END:
+            continue
+        
+        # Convert NBSP variants to regular space
+        if code in NBSP_CHARS or char.isspace():
+            if not prev_was_space:
+                output.append(' ')
+                prev_was_space = True
+        else:
+            output.append(char)
+            prev_was_space = False
+    
+    # Join and trim
+    result = ''.join(output).strip()
+    
+    # Remove zero-width characters that might have been missed
+    result = re.sub(r'[\u200b\u200c\u200d\u2060\uFEFF]', '', result)
+    
+    return result
 
 
 async def wait_for_selector_stable(

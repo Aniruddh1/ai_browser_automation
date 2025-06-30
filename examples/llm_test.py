@@ -23,9 +23,9 @@ async def test_with_api_key():
     has_google = bool(os.getenv("GOOGLE_API_KEY"))
     
     print("API Key Status:")
-    print(f"  OpenAI: {'✓' if has_openai else '✗'}")
-    print(f"  Anthropic: {'✓' if has_anthropic else '✗'}")
-    print(f"  Google: {'✓' if has_google else '✗'}")
+    print(f"  OpenAI: {'[OK]' if has_openai else '[FAIL]'}")
+    print(f"  Anthropic: {'[OK]' if has_anthropic else '[FAIL]'}")
+    print(f"  Google: {'[OK]' if has_google else '[FAIL]'}")
     print()
     
     # Test with available providers
@@ -36,11 +36,11 @@ async def test_with_api_key():
             verbose=0,
             model_name="gpt-4o-mini",
             model_client_options={"api_key": os.getenv("OPENAI_API_KEY")}
-        ) as stagehand:
-            page = await stagehand.page()
+        ) as browser:
+            page = await browser.page()
             await page.goto("https://example.com")
             elements = await page.observe("Find links on the page")
-            print(f"✓ OpenAI found {len(elements)} elements")
+            print(f"[OK] OpenAI found {len(elements)} elements")
     
     if has_anthropic:
         print("\nTesting with Anthropic...")
@@ -49,11 +49,11 @@ async def test_with_api_key():
             verbose=0,
             model_name="claude-3-haiku",
             model_client_options={"api_key": os.getenv("ANTHROPIC_API_KEY")}
-        ) as stagehand:
-            page = await stagehand.page()
+        ) as browser:
+            page = await browser.page()
             await page.goto("https://example.com")
             elements = await page.observe("Find links on the page")
-            print(f"✓ Anthropic found {len(elements)} elements")
+            print(f"[OK] Anthropic found {len(elements)} elements")
     
     if has_google:
         print("\nTesting with Google AI...")
@@ -62,19 +62,19 @@ async def test_with_api_key():
             verbose=0,
             model_name="gemini-1.5-flash",
             model_client_options={"api_key": os.getenv("GOOGLE_API_KEY")}
-        ) as stagehand:
-            page = await stagehand.page()
+        ) as browser:
+            page = await browser.page()
             await page.goto("https://example.com")
             elements = await page.observe("Find links on the page")
-            print(f"✓ Google AI found {len(elements)} elements")
+            print(f"[OK] Google AI found {len(elements)} elements")
     
     if not (has_openai or has_anthropic or has_google):
         print("No API keys found. Testing with mock client...")
-        async with AIBrowserAutomation(headless=True, verbose=0) as stagehand:
-            page = await stagehand.page()
+        async with AIBrowserAutomation(headless=True, verbose=0) as browser:
+            page = await browser.page()
             await page.goto("https://example.com")
             elements = await page.observe("Find links on the page")
-            print(f"✓ Mock client found {len(elements)} elements")
+            print(f"[OK] Mock client found {len(elements)} elements")
 
 
 async def test_mock_fallback():
@@ -85,17 +85,17 @@ async def test_mock_fallback():
         headless=True,
         verbose=1,
         model_name="gpt-4o"  # Will use mock since no API key
-    ) as stagehand:
-        page = await stagehand.page()
+    ) as browser:
+        page = await browser.page()
         await page.goto("https://example.com")
         
         # Test observe
         elements = await page.observe()
-        print(f"✓ Mock observe: Found {len(elements)} elements")
+        print(f"[OK] Mock observe: Found {len(elements)} elements")
         
         # Test act
         result = await page.act("Click the More information link")
-        print(f"✓ Mock act: {result.success}")
+        print(f"[OK] Mock act: {result.success}")
         
         # Test extract
         from pydantic import BaseModel
@@ -105,7 +105,7 @@ async def test_mock_fallback():
             url: str
         
         data = await page.extract(TestData)
-        print(f"✓ Mock extract: {data.data.title}")
+        print(f"[OK] Mock extract: {data.data.title}")
 
 
 async def main():
@@ -118,7 +118,7 @@ async def main():
     # Test mock fallback
     await test_mock_fallback()
     
-    print("\n✓ All LLM provider tests completed!")
+    print("\n[OK] All LLM provider tests completed!")
 
 
 if __name__ == "__main__":

@@ -31,21 +31,21 @@ async def main():
             headless=False,
             verbose=2,
             enable_caching=True,
-        ) as stagehand:
-            print(f"\n✓ AIBrowserAutomation initialized")
+        ) as browser:
+            print(f"\n[OK] AIBrowserAutomation initialized")
             
             # Create a page
-            page = await stagehand.page()
-            print(f"✓ Page created")
+            page = await browser.page()
+            print(f"[OK] Page created")
             
             # Navigate to a test website
             await page.goto("https://example.com")
-            print(f"✓ Navigated to: {page.url}")
+            print(f"[OK] Navigated to: {page.url}")
             
             # Test 1: Observe elements on the page
             print("\n--- Testing Observe Handler ---")
             elements = await page.observe()
-            print(f"✓ Found {len(elements)} elements")
+            print(f"[OK] Found {len(elements)} elements")
             for i, elem in enumerate(elements[:3]):
                 print(f"  {i+1}. {elem.description} [{elem.selector}]")
             
@@ -55,7 +55,7 @@ async def main():
                 WebsiteInfo,
                 instruction="Extract information about this website"
             )
-            print(f"✓ Extracted data:")
+            print(f"[OK] Extracted data:")
             print(f"  Title: {website_info.data.title}")
             print(f"  Main heading: {website_info.data.main_heading}")
             print(f"  Description: {website_info.data.description}")
@@ -66,7 +66,7 @@ async def main():
             print("\n--- Testing Act Handler ---")
             # Try to click on "More information" link
             act_result = await page.act("Click on the More information link")
-            print(f"✓ Action result: {act_result.success}")
+            print(f"[OK] Action result: {act_result.success}")
             if act_result.success:
                 print(f"  Action: {act_result.action}")
                 print(f"  Description: {act_result.description}")
@@ -78,17 +78,17 @@ async def main():
             # Test 4: Observe with specific instruction
             print("\n--- Testing Observe with instruction ---")
             links = await page.observe("Find all links on the page")
-            print(f"✓ Found {len(links)} links")
+            print(f"[OK] Found {len(links)} links")
             for i, link in enumerate(links[:3]):
                 print(f"  {i+1}. {link.description} [{link.selector}]")
             
             # Wait before closing
             await asyncio.sleep(3)
             
-        print("\n✓ All handler tests completed!")
+        print("\n[OK] All handler tests completed!")
         
     except Exception as e:
-        print(f"\n✗ Test failed with error: {e}")
+        print(f"\n[FAIL] Test failed with error: {e}")
         import traceback
         traceback.print_exc()
 

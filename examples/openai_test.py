@@ -32,8 +32,8 @@ async def test_openai_detailed():
         verbose=1,  # Show some logs
         model_name="gpt-4o-mini",
         model_client_options={"api_key": os.getenv("OPENAI_API_KEY")}
-    ) as stagehand:
-        page = await stagehand.page()
+    ) as browser:
+        page = await browser.page()
         await page.goto("https://example.com")
 
         print("1. Testing Observe with OpenAI:")
@@ -83,7 +83,7 @@ async def main():
         return
 
     await test_openai_detailed()
-    print("\n✓ OpenAI provider test completed!")
+    print("\n[OK] OpenAI provider test completed!")
 
 
 if __name__ == "__main__":

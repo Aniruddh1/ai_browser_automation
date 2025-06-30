@@ -18,8 +18,8 @@ async def debug_observe():
         verbose=0,  # Less verbose for cleaner output
         model_name="gpt-4o-mini",
         model_client_options={"api_key": os.getenv("OPENAI_API_KEY")}
-    ) as stagehand:
-        page = await stagehand.page()
+    ) as browser:
+        page = await browser.page()
         
         await page.goto("https://example.com")
         await page.wait_for_load_state("domcontentloaded")
@@ -67,7 +67,7 @@ async def main():
         return
     
     await debug_observe()
-    print("\n✓ Debug completed!")
+    print("\n[OK] Debug completed!")
 
 
 if __name__ == "__main__":

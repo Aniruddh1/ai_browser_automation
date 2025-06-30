@@ -294,5 +294,18 @@ window.generateUniqueSelector = function(elem) {
     return window.generateXPath(elem);
 };
 
+// Helper function to get CDP backend node ID (if available)
+window.__getCDPNodeId = function(element) {
+    // This would be set by CDP if available
+    return element.__backendNodeId || null;
+};
+
+// Store frame information
+window.__frameInfo = {
+    url: window.location.href,
+    frameId: window.frameElement ? null : 'main',
+    isMainFrame: !window.frameElement
+};
+
 console.log('AIBrowserAutomation DOM scripts injected successfully');
 """

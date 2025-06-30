@@ -23,8 +23,8 @@ async def test_demo_agent_search():
         verbose=2,
         model_name="gpt-4o",
         model_client_options={"api_key": os.getenv("OPENAI_API_KEY")}
-    ) as stagehand:
-        page = await stagehand.page()
+    ) as browser:
+        page = await browser.page()
         
         print("1. Testing agent search on Google:")
         print("-" * 50)
@@ -61,8 +61,8 @@ async def test_demo_agent_navigation():
         verbose=1,
         model_name="gpt-4o-mini",
         model_client_options={"api_key": os.getenv("OPENAI_API_KEY")}
-    ) as stagehand:
-        page = await stagehand.page()
+    ) as browser:
+        page = await browser.page()
         
         print("1. Testing navigation to GitHub:")
         print("-" * 50)
@@ -89,8 +89,8 @@ async def test_demo_agent_clicking():
         verbose=1,
         model_name="gpt-4o",
         model_client_options={"api_key": os.getenv("OPENAI_API_KEY")}
-    ) as stagehand:
-        page = await stagehand.page()
+    ) as browser:
+        page = await browser.page()
         await page.goto("https://www.example.com")
         
         print("1. Testing click action:")
@@ -116,8 +116,8 @@ async def test_demo_agent_form():
         verbose=1,
         model_name="gpt-4o",
         model_client_options={"api_key": os.getenv("OPENAI_API_KEY")}
-    ) as stagehand:
-        page = await stagehand.page()
+    ) as browser:
+        page = await browser.page()
         
         # Go to a simple form page
         await page.goto("https://www.google.com")
@@ -148,8 +148,8 @@ async def test_demo_agent_complex():
         verbose=1,
         model_name="gpt-4o",
         model_client_options={"api_key": os.getenv("OPENAI_API_KEY")}
-    ) as stagehand:
-        page = await stagehand.page()
+    ) as browser:
+        page = await browser.page()
         
         print("1. Testing complex multi-step task:")
         print("-" * 50)
@@ -186,7 +186,7 @@ async def main():
         await test_demo_agent_complex()
         
         print("\n" + "=" * 70)
-        print("✓ Demo agent tests completed!")
+        print("[OK] Demo agent tests completed!")
         print("=" * 70)
         
         print("\nThe demo agent successfully:")
@@ -199,7 +199,7 @@ async def main():
         print("full computer use API integration when available.")
         
     except Exception as e:
-        print(f"\n✗ Demo agent tests failed with error: {e}")
+        print(f"\n[FAIL] Demo agent tests failed with error: {e}")
         import traceback
         traceback.print_exc()
 

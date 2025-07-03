@@ -105,41 +105,134 @@ async def click_element(
     
     This approach bypasses Playwright's built-in click and directly executes
     a click in the browser context, which works better for complex sites.
+    Matches TypeScript's advanced click handling.
     """
     logger.debug(
         "action",
-        "Clicking element using JavaScript",
+        "Page URL before click",
         xpath=xpath,
         url=page.url
     )
     
+    # Custom click error for better error messages
+    class ClickError(Exception):
+        def __init__(self, xpath: str, original_error: str):
+            self.xpath = xpath
+            self.original_error = original_error
+            super().__init__(f"Failed to click element at {xpath}: {original_error}")
+    
     try:
-        # First try to scroll the element into view
-        await locator.evaluate("(el) => el.scrollIntoView({ behavior: 'smooth', block: 'center' })")
-        await page.wait_for_timeout(500)  # Brief pause for scroll
+        # Method 1: JavaScript click with proper type casting (TypeScript style)
+        await locator.evaluate("""
+            (el) => {
+                // Ensure element is HTMLElement
+                if (el instanceof HTMLElement) {
+                    // Scroll into view first
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    // Focus if possible
+                    if (typeof el.focus === 'function') {
+                        el.focus();
+                    }
+                    // Click
+                    el.click();
+                } else {
+                    throw new Error('Element is not an HTMLElement');
+                }
+            }
+        """)
         
-        # Execute click via JavaScript
-        await locator.evaluate("(el) => el.click()")
+        logger.debug(
+            "action",
+            "JavaScript click successful",
+            xpath=xpath
+        )
         
     except Exception as e:
-        # Fallback to force click if JavaScript click fails
+        error_msg = str(e).lower()
+        
+        # Check for specific error conditions
+        if "element is not an htmlelement" in error_msg:
+            logger.warning(
+                "action",
+                "Element is not HTMLElement, trying alternative methods",
+                error=str(e)
+            )
+        elif "element is not attached" in error_msg or "detached" in error_msg:
+            # Element was removed from DOM
+            raise ClickError(xpath, "Element is no longer attached to the DOM")
+        elif "element is not visible" in error_msg or "element is not clickable" in error_msg:
+            logger.info(
+                "action",
+                "Element not clickable, trying to make it visible",
+                error=str(e)
+            )
+            
+            # Try to make element visible
+            try:
+                await locator.evaluate("""
+                    (el) => {
+                        // Remove display:none
+                        if (el.style.display === 'none') {
+                            el.style.display = '';
+                        }
+                        // Remove visibility:hidden
+                        if (el.style.visibility === 'hidden') {
+                            el.style.visibility = 'visible';
+                        }
+                        // Ensure non-zero dimensions
+                        if (el.offsetWidth === 0 || el.offsetHeight === 0) {
+                            el.style.minWidth = '1px';
+                            el.style.minHeight = '1px';
+                        }
+                    }
+                """)
+                # Retry click
+                await locator.evaluate("(el) => el.click()")
+            except:
+                pass  # Continue to other methods
+        
+        # Method 2: Playwright click with force
         logger.info(
             "action",
-            "JavaScript click failed, trying force click",
+            "JavaScript click failed, trying Playwright force click",
             error=str(e)
         )
         
         try:
-            await locator.click(force=True)
+            await locator.click(force=True, timeout=5000)
+            logger.debug("action", "Force click successful")
         except Exception as e2:
-            logger.error(
+            # Method 3: Dispatch click event
+            logger.info(
                 "action",
-                "Force click also failed",
+                "Force click failed, trying event dispatch",
                 error=str(e2)
             )
-            raise
+            
+            try:
+                await locator.evaluate("""
+                    (el) => {
+                        const clickEvent = new MouseEvent('click', {
+                            view: window,
+                            bubbles: true,
+                            cancelable: true,
+                            buttons: 1
+                        });
+                        el.dispatchEvent(clickEvent);
+                    }
+                """)
+                logger.debug("action", "Event dispatch successful")
+            except Exception as e3:
+                logger.error(
+                    "action",
+                    "All click methods failed",
+                    js_error=str(e),
+                    force_error=str(e2),
+                    dispatch_error=str(e3)
+                )
+                raise ClickError(xpath, f"All methods failed. Last error: {str(e3)}")
     
-    # Handle possible page navigation
+    # Handle possible page navigation with tab detection
     await handle_possible_page_navigation(
         action="click",
         xpath=xpath,
@@ -201,10 +294,27 @@ async def press_key(
     key = args[0] if args else "Enter"
     
     try:
+        # Try element-level key press first
         await locator.press(key)
     except Exception as e:
+        logger.debug(
+            "action",
+            "Locator press failed, trying page-level key press",
+            error=str(e)
+        )
         # Try page-level key press
         await page.keyboard.press(key)
+    
+    # Handle navigation for keys that might trigger it (Enter, Space on links/buttons)
+    if key.lower() in ["enter", "space", " "]:
+        await handle_possible_page_navigation(
+            action="press",
+            xpath=xpath,
+            initial_url=initial_url,
+            page=page,
+            logger=logger,
+            timeout=dom_settle_timeout,
+        )
 
 
 async def scroll_into_view(
@@ -306,6 +416,7 @@ async def handle_possible_page_navigation(
 ) -> None:
     """
     Handle possible page navigation after an action.
+    Matches TypeScript's sophisticated navigation detection.
     
     Checks for:
     - New tabs/windows opened
@@ -314,28 +425,114 @@ async def handle_possible_page_navigation(
     """
     logger.debug(
         "action",
-        f"{action} complete, checking for navigation",
+        f"{action}, checking for page navigation",
+        xpath=xpath,
         initial_url=initial_url,
         current_url=page.url
     )
     
-    # Check if URL changed
-    if page.url != initial_url:
+    # Get the browser context to monitor for new pages
+    context = page.context
+    
+    # Set up new page detection with timeout
+    new_page = None
+    async def wait_for_new_page():
+        nonlocal new_page
+        try:
+            # Wait for a new page event with timeout
+            # Get current pages
+            initial_pages = context.pages
+            
+            # Wait for page event with timeout
+            new_page = await asyncio.wait_for(
+                context.wait_for_event("page"),
+                timeout=1.5  # 1.5 second timeout like TypeScript
+            )
+            
+            # Verify it's actually a new page
+            if new_page not in initial_pages and new_page.url != "about:blank":
+                return new_page
+            else:
+                new_page = None
+        except asyncio.TimeoutError:
+            new_page = None
+        return None
+    
+    # Start monitoring for new page
+    new_page_task = asyncio.create_task(wait_for_new_page())
+    
+    # Wait a bit for potential new page
+    try:
+        await asyncio.wait_for(new_page_task, timeout=1.5)
+    except asyncio.TimeoutError:
+        pass
+    
+    # Check if we got a new page
+    if new_page and new_page.url != "about:blank":
         logger.info(
             "action",
-            "Page navigated to new URL",
-            from_url=initial_url,
-            to_url=page.url
+            "New page detected (new tab) with URL",
+            url=new_page.url,
+            new_tab=True
         )
         
-        # Wait for the new page to load
-        try:
-            await page.wait_for_load_state("domcontentloaded", timeout=timeout)
-        except Exception:
-            pass  # Page might already be loaded
+        # Close the new tab and navigate current page to that URL (TypeScript behavior)
+        target_url = new_page.url
+        await new_page.close()
+        await page.goto(target_url)
+        await page.wait_for_load_state("domcontentloaded")
+        
+        logger.debug(
+            "action",
+            "Navigated current page to new tab URL",
+            url=target_url
+        )
+    else:
+        logger.debug(
+            "action",
+            f"{action} complete",
+            new_tab="no new tabs opened"
+        )
     
-    # Brief pause to let any animations or transitions complete
-    await page.wait_for_timeout(1000)
+    # Wait for DOM to settle (TypeScript's _waitForSettledDom)
+    try:
+        # Check if navigation happened
+        if page.url != initial_url:
+            logger.info(
+                "action",
+                "Page navigated to new URL",
+                from_url=initial_url,
+                to_url=page.url
+            )
+            
+            # Wait for the page to load
+            try:
+                await page.wait_for_load_state("domcontentloaded", timeout=timeout)
+            except Exception as e:
+                logger.debug(
+                    "action",
+                    "Page already loaded or timeout",
+                    error=str(e)
+                )
+        
+        # Wait for network to be idle (similar to DOM settling)
+        try:
+            await page.wait_for_load_state("networkidle", timeout=min(timeout, 5000))
+        except Exception:
+            # Network might not become idle, that's ok
+            pass
+            
+    except Exception as e:
+        logger.debug(
+            "action",
+            "Navigation handling timeout hit",
+            error=str(e)
+        )
+    
+    logger.debug(
+        "action",
+        "Finished waiting for (possible) page navigation"
+    )
 
 
 def clean_selector(selector: str) -> str:

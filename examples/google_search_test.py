@@ -20,7 +20,7 @@ async def test_google_search():
 
     async with AIBrowserAutomation(
         headless=False,
-        verbose=1,  # Show some logs
+        verbose=2,  # Show more logs to see our new logging
         model_name="gpt-4o-mini",
         model_client_options={"api_key": os.getenv("OPENAI_API_KEY")}
     ) as browser:

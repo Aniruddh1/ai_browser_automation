@@ -2,7 +2,7 @@
 
 import sys
 import structlog
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional, List, Union
 from enum import IntEnum
 import os
 
@@ -109,8 +109,29 @@ class AIBrowserAutomationLogger:
         self.logger = logger
         self.verbose = verbose
     
-    def log(self, log_line: LogLine) -> None:
+    def log(self, log_line: Union[LogLine, Dict[str, Any]]) -> None:
         """Log a structured log line."""
+        # Support both LogLine objects and TypeScript-style dicts
+        if isinstance(log_line, dict):
+            # Convert TypeScript-style log to LogLine
+            category = log_line.get('category', '')
+            message = log_line.get('message', '')
+            level = log_line.get('level', 1)
+            
+            # Map numeric levels to LogLevel enum
+            if isinstance(level, int):
+                # Map TypeScript numeric levels: 0=error, 1=info, 2=debug
+                level_map = {0: LogLevel.ERROR, 1: LogLevel.INFO, 2: LogLevel.DEBUG}
+                level = level_map.get(level, LogLevel.INFO)
+            elif isinstance(level, str):
+                # Map string levels to LogLevel
+                level_map = {'error': LogLevel.ERROR, 'warn': LogLevel.WARN, 
+                           'info': LogLevel.INFO, 'debug': LogLevel.DEBUG}
+                level = level_map.get(level.lower(), LogLevel.INFO)
+            
+            auxiliary = log_line.get('auxiliary', {})
+            log_line = LogLine(category, message, level, auxiliary)
+        
         if log_line.level.value > self.verbose:
             return
         

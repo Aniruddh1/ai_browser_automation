@@ -30,6 +30,10 @@ class ActHandler(BaseHandler[ActResult]):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
+        # Extract self_heal configuration
+        self.self_heal = kwargs.get('self_heal', True)
+        self.max_retries = kwargs.get('max_retries', 3)
+        
         # Method handler mapping
         self.method_handlers: Dict[str, Callable] = {
             ActionType.CLICK: self._handle_click,
@@ -62,22 +66,60 @@ class ActHandler(BaseHandler[ActResult]):
         # Parse input into ActOptions
         options = self._parse_action_input(action_or_options)
         
-        self._log_info(
-            "Executing action",
-            action=options.action,
-            instruction=isinstance(action_or_options, str) and action_or_options or None,
-        )
+        # Determine the action string for logging
+        if isinstance(action_or_options, str):
+            action_str = action_or_options
+        elif isinstance(action_or_options, ObserveResult):
+            action_str = action_or_options.description or "act from ObserveResult"
+        else:
+            action_str = f"{options.action or 'perform action'}"
+        
+        # Log the action start
+        self.logger.log({
+            "category": "act",
+            "message": f"starting action: {action_str}",
+            "level": 1,
+            "auxiliary": {
+                "action": {"value": action_str, "type": "string"},
+                "method": {"value": str(options.action) if options.action else "unknown", "type": "string"}
+            }
+        })
         
         try:
             # If we have an ObserveResult, execute directly
             if isinstance(action_or_options, ObserveResult):
-                return await self._execute_from_observe_result(page, action_or_options, options)
+                self.logger.log({
+                    "category": "act",
+                    "message": "executing from ObserveResult",
+                    "level": 2,
+                    "auxiliary": {
+                        "selector": {"value": action_or_options.selector, "type": "string"},
+                        "method": {"value": action_or_options.method or "unknown", "type": "string"}
+                    }
+                })
+                return await self._execute_from_observe_result(page, action_or_options, options, retry_count=0)
             
             # Otherwise, observe first then act
+            self.logger.log({
+                "category": "act",
+                "message": "observing page before action",
+                "level": 2,
+                "auxiliary": {
+                    "instruction": {"value": action_str, "type": "string"}
+                }
+            })
             return await self._execute_with_observation(page, action_or_options, options)
             
         except Exception as e:
-            self._log_error(f"Action failed: {e}", error=str(e))
+            self.logger.log({
+                "category": "act", 
+                "message": "action failed",
+                "level": 1,
+                "auxiliary": {
+                    "error": {"value": str(e), "type": "string"},
+                    "action": {"value": action_str, "type": "string"}
+                }
+            })
             return ActResult(
                 success=False,
                 action=options.action or ActionType.CLICK,
@@ -134,23 +176,41 @@ class ActHandler(BaseHandler[ActResult]):
         self,
         page: 'AIBrowserAutomationPage',
         observe_result: ObserveResult,
-        options: ActOptions
+        options: ActOptions,
+        retry_count: int = 0
     ) -> ActResult:
-        """Execute action from an ObserveResult."""
+        """Execute action from an ObserveResult with self-healing."""
         selector = observe_result.selector
         
         # Use method from observe result if available, otherwise map action to method
         if observe_result.method:
+            # Check if method is supported
+            if observe_result.method == "not-supported":
+                self._log_warning(
+                    "Cannot execute ObserveResult with unsupported method",
+                    method=observe_result.method
+                )
+                return ActResult(
+                    success=False,
+                    action=options.action or ActionType.CLICK,
+                    error=f"The method '{observe_result.method}' is not supported",
+                    description=observe_result.description
+                )
+            
             # Use the specific Playwright method from observe
             method = observe_result.method
             arguments = observe_result.arguments or []
             
-            self._log_debug(
-                "Executing Playwright method from observe result",
-                selector=selector,
-                method=method,
-                arguments=arguments,
-            )
+            self.logger.log({
+                "category": "act",
+                "message": f"performing {method}",
+                "level": 1,
+                "auxiliary": {
+                    "method": {"value": method, "type": "string"},
+                    "selector": {"value": selector, "type": "string"},
+                    "arguments": {"value": str(arguments), "type": "object"}
+                }
+            })
             
             # Use improved method handling from utilities
             cleaned_selector = clean_selector(selector)
@@ -162,30 +222,56 @@ class ActHandler(BaseHandler[ActResult]):
                     selector=cleaned_selector,
                     args=arguments,
                     logger=self.logger,
-                    dom_settle_timeout=30000,
+                    dom_settle_timeout=options.dom_settle_timeout or 30000,
                 )
+                
+                # Map method back to action type for result
+                action_map = {
+                    "fill": ActionType.FILL,
+                    "type": ActionType.FILL,
+                    "click": ActionType.CLICK,
+                    "press": ActionType.CLICK,
+                    "hover": ActionType.HOVER,
+                    "scrollIntoView": ActionType.SCROLL,
+                }
+                action = action_map.get(method, ActionType.CLICK)
+                
+                return ActResult(
+                    success=True,
+                    action=action,
+                    selector=selector,
+                    description=observe_result.description,
+                    metadata={"method": method, "arguments": arguments}
+                )
+                
             except Exception as e:
                 self._log_error(f"Method execution failed: {e}", error=str(e))
-                raise ActionFailedError(method, str(e))
-            
-            # Map method back to action type for result
-            action_map = {
-                "fill": ActionType.FILL,
-                "type": ActionType.FILL,
-                "click": ActionType.CLICK,
-                "press": ActionType.CLICK,
-                "hover": ActionType.HOVER,
-                "scrollIntoView": ActionType.SCROLL,
-            }
-            action = action_map.get(method, ActionType.CLICK)
-            
-            return ActResult(
-                success=True,
-                action=action,
-                selector=selector,
-                description=observe_result.description,
-                metadata={"method": method, "arguments": arguments}
-            )
+                
+                # Self-healing: if enabled and not at max retries, try again
+                if self.self_heal and retry_count < self.max_retries:
+                    self._log_info(
+                        "Attempting self-healing",
+                        retry_count=retry_count + 1,
+                        max_retries=self.max_retries,
+                        original_error=str(e)
+                    )
+                    
+                    # Try re-observing and acting with the description
+                    return await self._attempt_self_healing(
+                        page=page,
+                        original_instruction=observe_result.description,
+                        options=options,
+                        original_error=e,
+                        retry_count=retry_count + 1
+                    )
+                
+                # If self-healing disabled or failed, return error
+                return ActResult(
+                    success=False,
+                    action=options.action or ActionType.CLICK,
+                    error=str(e),
+                    description=observe_result.description
+                )
         else:
             # Fallback to old behavior using action handlers
             action = observe_result.action or options.action or ActionType.CLICK
@@ -204,15 +290,31 @@ class ActHandler(BaseHandler[ActResult]):
                     f"Unsupported action type: {action}"
                 )
             
-            # Execute action
-            await handler(page, selector, options)
-            
-            return ActResult(
-                success=True,
-                action=action,
-                selector=selector,
-                description=observe_result.description,
-            )
+            try:
+                # Execute action
+                await handler(page, selector, options)
+                
+                return ActResult(
+                    success=True,
+                    action=action,
+                    selector=selector,
+                    description=observe_result.description,
+                )
+            except Exception as e:
+                if self.self_heal and retry_count < self.max_retries:
+                    return await self._attempt_self_healing(
+                        page=page,
+                        original_instruction=observe_result.description,
+                        options=options,
+                        original_error=e,
+                        retry_count=retry_count + 1
+                    )
+                return ActResult(
+                    success=False,
+                    action=action,
+                    error=str(e),
+                    description=observe_result.description
+                )
     
     async def _execute_with_observation(
         self,
@@ -256,26 +358,86 @@ class ActHandler(BaseHandler[ActResult]):
         page: 'AIBrowserAutomationPage',
         original_instruction: str,
         options: ActOptions,
-        original_error: Exception
+        original_error: Exception,
+        retry_count: int = 1
     ) -> ActResult:
         """Attempt to self-heal when action fails."""
         self._log_info(
             "Attempting self-healing",
-            original_error=str(original_error)
+            original_error=str(original_error),
+            retry_count=retry_count
         )
         
-        # Re-observe with more context
-        healing_instruction = f"{original_instruction}. Previous attempt failed: {original_error}"
+        # Wait a bit before retrying
+        await asyncio.sleep(0.5 * retry_count)  # Exponential backoff
+        
+        # Refresh the page state
+        await page._wait_for_settled_dom()
+        
+        # Build a more specific instruction based on the error
+        if "timeout" in str(original_error).lower():
+            healing_instruction = f"{original_instruction}. The element might be loading slowly or hidden. Look for alternative ways to perform this action."
+        elif "not found" in str(original_error).lower() or "no element" in str(original_error).lower():
+            healing_instruction = f"{original_instruction}. The element was not found. Look for similar elements or alternative ways to achieve this action."
+        elif "not clickable" in str(original_error).lower() or "intercepted" in str(original_error).lower():
+            healing_instruction = f"{original_instruction}. The element might be covered by another element. Try scrolling or look for alternative elements."
+        else:
+            healing_instruction = f"{original_instruction}. Previous attempt failed with: {str(original_error)}. Try a different approach."
         
         try:
-            return await self._execute_with_observation(page, healing_instruction, options)
+            # Re-observe with enhanced instruction
+            from ..types import ObserveOptions
+            observe_options = ObserveOptions(
+                instruction=healing_instruction,
+                model_name=options.model_name,
+                return_action=True,
+                from_act=True
+            )
+            
+            observe_results = await page.observe(observe_options)
+            
+            if not observe_results:
+                return ActResult(
+                    success=False,
+                    action=options.action or ActionType.CLICK,
+                    error=f"Self-healing failed: No elements found. Original error: {original_error}",
+                    metadata={"self_healing_attempted": True, "retry_count": retry_count}
+                )
+            
+            # Try with the new observation result
+            new_result = observe_results[0]
+            
+            # Apply any variable substitutions if needed
+            if options.variable_values:
+                for key, value in options.variable_values.items():
+                    if new_result.arguments:
+                        new_result.arguments = [
+                            arg.replace(f"%{key}%", value) if isinstance(arg, str) else arg
+                            for arg in new_result.arguments
+                        ]
+            
+            # Execute with the new observation
+            return await self._execute_from_observe_result(
+                page, 
+                new_result, 
+                options,
+                retry_count=retry_count
+            )
+            
         except Exception as e:
             # Self-healing failed
+            self._log_error(
+                "Self-healing failed",
+                error=str(e),
+                original_error=str(original_error),
+                retry_count=retry_count
+            )
+            
             return ActResult(
                 success=False,
                 action=options.action or ActionType.CLICK,
-                error=f"Original: {original_error}. Self-healing: {e}",
-                metadata={"self_healing_attempted": True}
+                error=f"Original error: {original_error}. Self-healing attempt {retry_count} failed: {e}",
+                metadata={"self_healing_attempted": True, "retry_count": retry_count}
             )
     
     # Action method handlers

@@ -37,13 +37,30 @@ class ObserveHandler(BaseHandler[List[ObserveResult]]):
         Returns:
             List of observed elements
         """
-        self._log_info(
-            "Starting observation",
-            instruction=options.instruction,
-            only_visible=options.only_visible,
-            draw_overlay=options.draw_overlay,
-            iframes=options.iframes,
-        )
+        # Set default instruction if not provided (matches TypeScript)
+        instruction = options.instruction
+        if not instruction:
+            instruction = "Find elements that can be used for any future actions in the page. These may be navigation links, related pages, section/subsection links, buttons, or other interactive elements. Be comprehensive: if there are multiple elements that may be relevant for future actions, return all of them."
+        
+        # Log observation start
+        self.logger.log({
+            "category": "observation",
+            "message": "starting observation",
+            "level": 1,
+            "auxiliary": {
+                "instruction": {"value": instruction, "type": "string"}
+            }
+        })
+        
+        # Wait for DOM to settle first (matching TypeScript)
+        await page._wait_for_settled_dom()
+        
+        # Log gathering accessibility tree
+        self.logger.log({
+            "category": "observation",
+            "message": "Getting accessibility tree data",
+            "level": 1
+        })
         
         # Gather page information
         page_info = await self._gather_page_info(page, include_iframes=options.iframes or False)
@@ -53,15 +70,15 @@ class ObserveHandler(BaseHandler[List[ObserveResult]]):
             # Get LLM client
             client = self.llm_provider.get_client(options.model_name)
             
-            # Determine instruction
-            if options.from_act and options.instruction:
+            # Determine instruction for LLM
+            if options.from_act and instruction:
                 # For act observations, use special prompt
                 supported_actions = [
                     'click', 'fill', 'type', 'press', 'hover', 'selectOption',
                     'check', 'uncheck', 'focus', 'blur', 'scrollIntoView'
                 ]
                 instruction = build_act_observe_prompt(
-                    options.instruction,
+                    instruction,
                     supported_actions,
                     None  # TODO: Add variables support
                 )
@@ -133,17 +150,39 @@ Only return the JSON object, no other text."""
             # Parse response
             results = self._parse_observe_response(response, page_info, options.from_act, options.return_action)
             
-            self._log_info(
-                "Observation completed",
-                found_count=len(results)
-            )
+            # Log found elements (matching TypeScript)
+            elements_for_log = []
+            for result in results:
+                element_log = {
+                    "selector": result.selector,
+                    "description": result.description
+                }
+                if result.method:
+                    element_log["method"] = result.method
+                if result.arguments:
+                    element_log["arguments"] = result.arguments
+                elements_for_log.append(element_log)
+            
+            self.logger.log({
+                "category": "observation",
+                "message": "found elements",
+                "level": 1,
+                "auxiliary": {
+                    "elements": {
+                        "value": json.dumps(elements_for_log),
+                        "type": "object"
+                    }
+                }
+            })
             
             # Add iframe warnings if present (matching TypeScript)
             iframes = page_info.get('iframes', [])
             if iframes and not options.iframes:
-                self._log_warning(
-                    f"Warning: found {len(iframes)} iframe(s) on the page. If you wish to interact with iframe content, please make sure you are setting iframes: true"
-                )
+                self.logger.log({
+                    "category": "observation",
+                    "message": f"Warning: found {len(iframes)} iframe(s) on the page. If you wish to interact with iframe content, please make sure you are setting iframes: true",
+                    "level": 1
+                })
                 
                 # Add iframe elements to results (matching TypeScript)
                 for iframe in iframes:

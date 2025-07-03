@@ -54,6 +54,8 @@ class ObserveResult(BaseModel):
     backend_node_id: Optional[int] = None  # Maps to backendNodeId in TS
     method: Optional[str] = None  # Playwright method to use (e.g., 'fill', 'click')
     arguments: Optional[List[str]] = None  # Arguments for the method
+    encoded_id: Optional[str] = None  # EncodedId for element identification
+    action: Optional[ActionType] = None  # Action type if from_act is true
 
 
 class ActOptions(BaseModel):
@@ -64,8 +66,10 @@ class ActOptions(BaseModel):
     strict: bool = False
     coordinate: Optional[tuple[float, float]] = None
     timeout: int = 30000
+    dom_settle_timeout: Optional[int] = None
     wait_for_nav: bool = False
     variable_values: Optional[Dict[str, str]] = None
+    iframes: bool = False
 
 
 class ActResult(BaseModel):

@@ -3,6 +3,7 @@
 import re
 from typing import Dict, List, Any, Optional, Tuple
 from playwright.async_api import Page, ElementHandle
+from ..utils.text import normalise_spaces
 
 
 async def get_element_xpath(page: Page, element: ElementHandle) -> Optional[str]:
@@ -374,25 +375,24 @@ def clean_text(text: str) -> str:
     if not text:
         return ""
     
-    # Remove PUA characters and normalize whitespace in a single pass
-    output = []
-    prev_was_space = False
+    # First normalize whitespace using TypeScript-compatible method
+    normalized = normalise_spaces(text)
     
-    for char in text:
+    # Then remove PUA characters and other special characters
+    output = []
+    
+    for char in normalized:
         code = ord(char)
         
         # Skip PUA characters
         if PUA_START <= code <= PUA_END:
             continue
         
-        # Convert NBSP variants to regular space
-        if code in NBSP_CHARS or char.isspace():
-            if not prev_was_space:
-                output.append(' ')
-                prev_was_space = True
+        # Convert remaining NBSP variants to regular space if any
+        if code in NBSP_CHARS:
+            output.append(' ')
         else:
             output.append(char)
-            prev_was_space = False
     
     # Join and trim
     result = ''.join(output).strip()

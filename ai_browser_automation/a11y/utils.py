@@ -17,6 +17,7 @@ from ..dom.xpath import (
     XPATH_GENERATION_SCRIPT
 )
 from ..cdp import cdp_manager
+from ..utils.text import normalise_spaces
 
 
 class AccessibilityTreeBuilder:
@@ -677,6 +678,42 @@ class AccessibilityTreeBuilder:
                 
         return root or {}
         
+    def _remove_redundant_static_text_children(
+        self, parent: Dict[str, Any], children: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Remove StaticText children whose combined text matches the parent's accessible name.
+        Matches TypeScript implementation for better text handling.
+        
+        Args:
+            parent: Parent node
+            children: List of child nodes
+            
+        Returns:
+            Filtered list of children
+        """
+        parent_name = parent.get("name", {}).get("value", "")
+        if not parent_name:
+            return children
+        
+        # Normalize and trim the parent's name
+        parent_norm = normalise_spaces(parent_name).strip()
+        combined_text = ""
+        
+        # Concatenate all StaticText children's normalized names
+        for child in children:
+            role = child.get("role", {}).get("value", "")
+            if role == "StaticText":
+                child_name = child.get("name", {}).get("value", "")
+                if child_name:
+                    combined_text += normalise_spaces(child_name).strip()
+        
+        # If combined StaticText equals the parent's name, filter them out
+        if combined_text == parent_norm:
+            return [c for c in children if c.get("role", {}).get("value", "") != "StaticText"]
+        
+        return children
+
     def _simplify_tree(self, tree: Dict[str, Any], tag_name_map: Dict[int, str], scrollable_backend_ids: Optional[set] = None, xpath_map: Optional[Dict[int, str]] = None) -> List[Dict[str, Any]]:
         """
         Simplify accessibility tree by flattening and cleaning.
@@ -703,7 +740,7 @@ class AccessibilityTreeBuilder:
             description = node.get("description", {}).get("value", "")
             
             # Skip certain roles (matching TypeScript)
-            skip_roles = {"generic", "none", "presentation", "InlineTextBox", "StaticText"}
+            skip_roles = {"generic", "none", "presentation", "InlineTextBox"}
             if role in skip_roles and not name and not value:
                 # Process children directly
                 for child in node.get("children", []):
@@ -744,10 +781,15 @@ class AccessibilityTreeBuilder:
                 
             simplified.append(simplified_node)
             
-            # Process children
-            for child in node.get("children", []):
-                flatten(child, depth + 1)
-                
+            # Handle children - apply StaticText filtering like TypeScript
+            children = node.get("children", [])
+            if children and role not in skip_roles:
+                # Filter redundant StaticText children
+                filtered_children = self._remove_redundant_static_text_children(node, children)
+                # Process filtered children
+                for child in filtered_children:
+                    flatten(child, depth + 1)
+            
         flatten(tree)
         return simplified
 

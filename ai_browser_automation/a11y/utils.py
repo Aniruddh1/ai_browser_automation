@@ -139,6 +139,14 @@ class AccessibilityTreeBuilder:
                     # Build element path for positional XPath
                     current_path = element_path + [{'tagName': node_name, 'index': position}]
                     
+                    # Build the XPath - use 0-based index for body to match TypeScript
+                    if node_name == "body" and parent_xpath == "/html[1]":
+                        xpath_segment = f"/{node_name}[0]"
+                    else:
+                        xpath_segment = f"/{node_name}[{position}]"
+                    
+                    current_xpath = parent_xpath + xpath_segment
+                    
                     if backend_id:
                         tag_name_map[backend_id] = node_name
                         
@@ -167,21 +175,14 @@ class AccessibilityTreeBuilder:
                         
                         element_info_map[backend_id] = element_info
                         
-                        # Generate sophisticated XPath strategies
-                        xpaths = generate_xpath_strategies(element_info, node_name)
-                        
-                        # Add positional XPath as fallback
-                        positional_xpath = build_positional_xpath(current_path)
-                        xpaths.append(positional_xpath)
-                        
-                        # For now, use the first XPath (we'll validate later)
-                        xpath_map[backend_id] = xpaths[0] if xpaths else positional_xpath
+                        # Use the current positional XPath for element nodes
+                        xpath_map[backend_id] = current_xpath
                         
                     # Traverse children
                     children = node.get("children", [])
                     child_position_map = {}
                     for child in children:
-                        traverse_node(child, parent_xpath + f"/{node_name}[{position}]", child_position_map, current_path)
+                        traverse_node(child, current_xpath, child_position_map, current_path)
                         
                 elif node_type == 3:  # TEXT_NODE
                     # Text nodes get special XPath
@@ -209,11 +210,7 @@ class AccessibilityTreeBuilder:
                         
             traverse_node(root)
             
-            # Now validate and find unique XPaths for elements
-            for backend_id, element_info in element_info_map.items():
-                unique_xpath = await find_unique_xpath(self.page, element_info, element_info['tagName'])
-                if unique_xpath:
-                    xpath_map[backend_id] = unique_xpath
+            # Don't override the positional XPaths - they should match TypeScript exactly
             
         except Exception as e:
             # Log error but continue

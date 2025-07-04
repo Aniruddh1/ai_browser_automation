@@ -37,6 +37,8 @@ async def perform_playwright_method(
         "scrollIntoView": scroll_into_view,
         "scrollTo": scroll_to_percentage,
         "scroll": scroll_to_percentage,
+        "nextChunk": scroll_to_next_chunk,
+        "prevChunk": scroll_to_previous_chunk,
     }
     
     # Clean selector (removes xpath= prefix, ensures starts with /)
@@ -103,9 +105,8 @@ async def click_element(
     """
     Click an element using JavaScript evaluation for better reliability.
     
-    This approach bypasses Playwright's built-in click and directly executes
-    a click in the browser context, which works better for complex sites.
-    Matches TypeScript's advanced click handling.
+    This approach matches TypeScript's implementation more closely to avoid
+    timing issues with multiple fallback methods.
     """
     logger.debug(
         "action",
@@ -122,115 +123,32 @@ async def click_element(
             super().__init__(f"Failed to click element at {xpath}: {original_error}")
     
     try:
-        # Method 1: JavaScript click with proper type casting (TypeScript style)
+        # Primary method: JavaScript click (matching TypeScript)
         await locator.evaluate("""
             (el) => {
-                // Ensure element is HTMLElement
-                if (el instanceof HTMLElement) {
-                    // Scroll into view first
-                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    // Focus if possible
-                    if (typeof el.focus === 'function') {
-                        el.focus();
-                    }
-                    // Click
-                    el.click();
-                } else {
-                    throw new Error('Element is not an HTMLElement');
-                }
+                // TypeScript casts to HTMLElement and clicks
+                el.click();
             }
         """)
         
         logger.debug(
             "action",
-            "JavaScript click successful",
+            "Click successful",
             xpath=xpath
         )
         
     except Exception as e:
-        error_msg = str(e).lower()
-        
-        # Check for specific error conditions
-        if "element is not an htmlelement" in error_msg:
-            logger.warning(
-                "action",
-                "Element is not HTMLElement, trying alternative methods",
-                error=str(e)
-            )
-        elif "element is not attached" in error_msg or "detached" in error_msg:
-            # Element was removed from DOM
-            raise ClickError(xpath, "Element is no longer attached to the DOM")
-        elif "element is not visible" in error_msg or "element is not clickable" in error_msg:
-            logger.info(
-                "action",
-                "Element not clickable, trying to make it visible",
-                error=str(e)
-            )
-            
-            # Try to make element visible
-            try:
-                await locator.evaluate("""
-                    (el) => {
-                        // Remove display:none
-                        if (el.style.display === 'none') {
-                            el.style.display = '';
-                        }
-                        // Remove visibility:hidden
-                        if (el.style.visibility === 'hidden') {
-                            el.style.visibility = 'visible';
-                        }
-                        // Ensure non-zero dimensions
-                        if (el.offsetWidth === 0 || el.offsetHeight === 0) {
-                            el.style.minWidth = '1px';
-                            el.style.minHeight = '1px';
-                        }
-                    }
-                """)
-                # Retry click
-                await locator.evaluate("(el) => el.click()")
-            except:
-                pass  # Continue to other methods
-        
-        # Method 2: Playwright click with force
-        logger.info(
+        # Log the error but follow TypeScript pattern of throwing immediately
+        logger.error(
             "action",
-            "JavaScript click failed, trying Playwright force click",
-            error=str(e)
+            "Error performing click",
+            error=str(e),
+            trace=str(e.__traceback__),
+            xpath=xpath,
+            method="click",
+            args=args
         )
-        
-        try:
-            await locator.click(force=True, timeout=5000)
-            logger.debug("action", "Force click successful")
-        except Exception as e2:
-            # Method 3: Dispatch click event
-            logger.info(
-                "action",
-                "Force click failed, trying event dispatch",
-                error=str(e2)
-            )
-            
-            try:
-                await locator.evaluate("""
-                    (el) => {
-                        const clickEvent = new MouseEvent('click', {
-                            view: window,
-                            bubbles: true,
-                            cancelable: true,
-                            buttons: 1
-                        });
-                        el.dispatchEvent(clickEvent);
-                    }
-                """)
-                logger.debug("action", "Event dispatch successful")
-            except Exception as e3:
-                logger.error(
-                    "action",
-                    "All click methods failed",
-                    js_error=str(e),
-                    force_error=str(e2),
-                    dispatch_error=str(e3)
-                )
-                raise ClickError(xpath, f"All methods failed. Last error: {str(e3)}")
+        raise ClickError(xpath, str(e))
     
     # Handle possible page navigation with tab detection
     await handle_possible_page_navigation(
@@ -382,6 +300,130 @@ async def scroll_to_percentage(
     """, {"xpath": xpath, "percentage": percentage})
     
     await page.wait_for_timeout(500)
+
+
+async def scroll_to_next_chunk(
+    page: Page,
+    locator: Locator,
+    xpath: str,
+    args: List[str],
+    logger: Any,
+    initial_url: str,
+    dom_settle_timeout: int,
+) -> None:
+    """Scroll to next chunk (one viewport height down)."""
+    logger.debug(
+        "action",
+        "Scrolling to next chunk",
+        xpath=xpath
+    )
+    
+    try:
+        await page.evaluate("""
+            ({xpath}) => {
+                const elementNode = window.getNodeFromXpath(xpath);
+                if (!elementNode || elementNode.nodeType !== Node.ELEMENT_NODE) {
+                    console.warn('Could not locate element to scroll by its height.');
+                    return Promise.resolve();
+                }
+                
+                const element = elementNode;
+                const tagName = element.tagName.toLowerCase();
+                let height;
+                
+                if (tagName === 'html' || tagName === 'body') {
+                    height = window.visualViewport.height;
+                    window.scrollBy({
+                        top: height,
+                        left: 0,
+                        behavior: 'smooth'
+                    });
+                    
+                    const scrollingEl = document.scrollingElement || document.documentElement;
+                    return window.waitForElementScrollEnd(scrollingEl);
+                } else {
+                    height = element.getBoundingClientRect().height;
+                    element.scrollBy({
+                        top: height,
+                        left: 0,
+                        behavior: 'smooth'
+                    });
+                    
+                    return window.waitForElementScrollEnd(element);
+                }
+            }
+        """, {"xpath": xpath})
+    except Exception as e:
+        logger.error(
+            "action",
+            "Error scrolling to next chunk",
+            error=str(e),
+            trace=str(e.__traceback__),
+            xpath=xpath
+        )
+        raise
+
+
+async def scroll_to_previous_chunk(
+    page: Page,
+    locator: Locator,
+    xpath: str,
+    args: List[str],
+    logger: Any,
+    initial_url: str,
+    dom_settle_timeout: int,
+) -> None:
+    """Scroll to previous chunk (one viewport height up)."""
+    logger.debug(
+        "action",
+        "Scrolling to previous chunk",
+        xpath=xpath
+    )
+    
+    try:
+        await page.evaluate("""
+            ({xpath}) => {
+                const elementNode = window.getNodeFromXpath(xpath);
+                if (!elementNode || elementNode.nodeType !== Node.ELEMENT_NODE) {
+                    console.warn('Could not locate element to scroll by its height.');
+                    return Promise.resolve();
+                }
+                
+                const element = elementNode;
+                const tagName = element.tagName.toLowerCase();
+                let height;
+                
+                if (tagName === 'html' || tagName === 'body') {
+                    height = window.visualViewport.height;
+                    window.scrollBy({
+                        top: -height,
+                        left: 0,
+                        behavior: 'smooth'
+                    });
+                    
+                    const scrollingEl = document.scrollingElement || document.documentElement;
+                    return window.waitForElementScrollEnd(scrollingEl);
+                } else {
+                    height = element.getBoundingClientRect().height;
+                    element.scrollBy({
+                        top: -height,
+                        left: 0,
+                        behavior: 'smooth'
+                    });
+                    
+                    return window.waitForElementScrollEnd(element);
+                }
+            }
+        """, {"xpath": xpath})
+    except Exception as e:
+        logger.error(
+            "action",
+            "Error scrolling to previous chunk",
+            error=str(e),
+            trace=str(e.__traceback__),
+            xpath=xpath
+        )
+        raise
 
 
 async def fallback_locator_method(

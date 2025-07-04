@@ -417,6 +417,36 @@ Only return the JSON object, no other text."""
                     prefixed_id = f"0-{encoded_id}"
                     xpath = xpath_map.get(prefixed_id, '')
                 
+                # Skip text nodes - they cannot be interacted with
+                if xpath and "/text()[" in xpath:
+                    self._log_debug(
+                        f"Skipping text node selector: {xpath}",
+                        element_id=encoded_id
+                    )
+                    # Try to find the parent element instead
+                    # Remove the /text()[n] suffix to get parent element xpath
+                    parent_xpath = xpath.rsplit('/text()[', 1)[0]
+                    # Find the parent element's ID in xpath_map
+                    parent_id = None
+                    for id, xp in xpath_map.items():
+                        if xp == parent_xpath:
+                            parent_id = id
+                            xpath = parent_xpath
+                            encoded_id = parent_id
+                            self._log_debug(
+                                f"Using parent element instead: {parent_xpath}",
+                                element_id=parent_id
+                            )
+                            break
+                    
+                    if not parent_id:
+                        # Can't find parent, skip this element
+                        self._log_debug(
+                            f"Cannot find parent element for text node, skipping",
+                            element_id=encoded_id
+                        )
+                        continue
+                
                 # Always use xpath= prefix, even if xpath is empty (matching TypeScript)
                 selector = f"xpath={xpath}"
                 

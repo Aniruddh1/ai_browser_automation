@@ -326,7 +326,7 @@ class AccessibilityTreeBuilder:
                 scrollable_backend_ids = await self._get_scrollable_backend_ids(frame_session)
                 
                 # Simplify tree with scrollable decoration
-                simplified = self._simplify_tree(tree, tag_name_map, scrollable_backend_ids)
+                simplified = self._simplify_tree(tree, tag_name_map, scrollable_backend_ids, xpath_map)
                 
                 # Encode IDs with frame information
                 encoded_xpath_map = {}
@@ -677,7 +677,7 @@ class AccessibilityTreeBuilder:
                 
         return root or {}
         
-    def _simplify_tree(self, tree: Dict[str, Any], tag_name_map: Dict[int, str], scrollable_backend_ids: Optional[set] = None) -> List[Dict[str, Any]]:
+    def _simplify_tree(self, tree: Dict[str, Any], tag_name_map: Dict[int, str], scrollable_backend_ids: Optional[set] = None, xpath_map: Optional[Dict[int, str]] = None) -> List[Dict[str, Any]]:
         """
         Simplify accessibility tree by flattening and cleaning.
         
@@ -702,13 +702,20 @@ class AccessibilityTreeBuilder:
             value = node.get("value", {}).get("value", "")
             description = node.get("description", {}).get("value", "")
             
-            # Skip certain roles
-            skip_roles = {"generic", "none", "presentation"}
+            # Skip certain roles (matching TypeScript)
+            skip_roles = {"generic", "none", "presentation", "InlineTextBox", "StaticText"}
             if role in skip_roles and not name and not value:
                 # Process children directly
                 for child in node.get("children", []):
                     flatten(child, depth)
                 return
+            
+            # Also skip text nodes that have text() in their XPath
+            if xpath_map and backend_id and backend_id in xpath_map:
+                xpath = xpath_map.get(backend_id, "")
+                if "/text()[" in xpath:
+                    # Skip text nodes entirely
+                    return
                 
             # Check if node is scrollable and decorate role
             if scrollable_backend_ids and backend_id in scrollable_backend_ids:
@@ -722,9 +729,13 @@ class AccessibilityTreeBuilder:
                 "nodeId": backend_id,
                 "encodedId": self.ai_browser_automation_page.encode_with_frame_id(None, backend_id) if backend_id else None,
                 "role": role,
-                "name": name,
-                "tagName": tag_name_map.get(backend_id, "div")
+                "name": name
             }
+            
+            # Only add tagName for non-text nodes (matching TypeScript)
+            # StaticText nodes represent text content, not HTML elements
+            if role != "StaticText":
+                simplified_node["tagName"] = tag_name_map.get(backend_id, "div")
             
             if value:
                 simplified_node["value"] = value

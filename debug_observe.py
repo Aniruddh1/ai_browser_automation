@@ -5,7 +5,7 @@ import asyncio
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-from ai_browser_automation import AIBrowserAutomation
+from playwright_ai import PlaywrightAI
 
 # Load environment variables
 load_dotenv(Path(__file__).parent / '.env')
@@ -18,7 +18,7 @@ async def debug_observe():
     print(f"API key starts with: {os.environ.get('OPENAI_API_KEY', '')[:20]}...")
     
     # Initialize browser with OpenAI
-    browser = AIBrowserAutomation(
+    browser = PlaywrightAI(
         model_name="gpt-4o-mini",
         model_client_options={"api_key": os.environ.get("OPENAI_API_KEY")},
         headless=False,
@@ -52,7 +52,7 @@ async def debug_observe():
             print("Page title:", await page.title())
             
             # Check accessibility tree directly
-            from ai_browser_automation.a11y import get_accessibility_tree
+            from playwright_ai.a11y import get_accessibility_tree
             tree_result = await get_accessibility_tree(page)
             print(f"\nAccessibility tree nodes: {len(tree_result['tree'])}")
             print(f"Simplified tree length: {len(tree_result['simplified'])}")

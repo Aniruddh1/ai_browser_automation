@@ -2,7 +2,7 @@
 """Debug script to test observe functionality."""
 
 import asyncio
-from ai_browser_automation import AIBrowserAutomation
+from playwright_ai import PlaywrightAI
 
 
 async def test_observe_debug():
@@ -10,7 +10,7 @@ async def test_observe_debug():
     print("Starting observe debug test...")
     
     # Initialize browser
-    browser = AIBrowserAutomation(
+    browser = PlaywrightAI(
         model_name="gpt-4o-mini",
         headless=False,
         verbose=2  # Enable debug logging

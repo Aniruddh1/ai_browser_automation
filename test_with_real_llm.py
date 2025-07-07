@@ -5,7 +5,7 @@ import asyncio
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-from ai_browser_automation import AIBrowserAutomation, ObserveOptions
+from playwright_ai import PlaywrightAI, ObserveOptions
 
 # Load environment variables
 load_dotenv(Path(__file__).parent / '.env')
@@ -17,7 +17,7 @@ async def test_with_real_llm():
     print(f"OpenAI API key loaded: {'OPENAI_API_KEY' in os.environ}")
     
     # Initialize browser with OpenAI
-    browser = AIBrowserAutomation(
+    browser = PlaywrightAI(
         model_name="gpt-4o-mini",
         model_client_options={"api_key": os.environ.get("OPENAI_API_KEY")},
         headless=False,

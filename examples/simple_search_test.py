@@ -1,6 +1,6 @@
 """Test search functionality on a simpler site."""
 
-from ai_browser_automation import AIBrowserAutomation
+from playwright_ai import PlaywrightAI
 import asyncio
 import os
 import sys
@@ -18,7 +18,7 @@ async def test_simple_search():
     """Test search on a site without anti-automation measures."""
     print("Testing Search Functionality...\n")
 
-    async with AIBrowserAutomation(
+    async with PlaywrightAI(
         headless=False,
         verbose=1,
         model_name="gpt-4o-mini",
@@ -34,7 +34,7 @@ async def test_simple_search():
         await page.wait_for_load_state("domcontentloaded")
         
         # Fill search box
-        fill_result = await page.act("Fill the search box with 'AIBrowserAutomation browser automation'")
+        fill_result = await page.act("Fill the search box with 'PlaywrightAI browser automation'")
         print(f"Fill result: {fill_result.success}")
         if fill_result.metadata:
             print(f"Method: {fill_result.metadata.get('method')}")

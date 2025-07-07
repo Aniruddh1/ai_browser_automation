@@ -7,10 +7,10 @@ from pathlib import Path
 # Add parent directory to path for development
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from ai_browser_automation import AIBrowserAutomation
-from ai_browser_automation.llm.mock_client import MockLLMClient
-from ai_browser_automation.types import LLMMessage
-from ai_browser_automation.utils.logger import configure_logging, AIBrowserAutomationLogger
+from playwright_ai import PlaywrightAI
+from playwright_ai.llm.mock_client import MockLLMClient
+from playwright_ai.types import LLMMessage
+from playwright_ai.utils.logger import configure_logging, PlaywrightAILogger
 
 
 async def main():
@@ -18,7 +18,7 @@ async def main():
     print("Detailed handler testing...\n")
     
     # First test the mock client directly
-    logger = AIBrowserAutomationLogger(configure_logging(0), 0)  # Quiet logging
+    logger = PlaywrightAILogger(configure_logging(0), 0)  # Quiet logging
     mock_client = MockLLMClient("gpt-4o", None, logger)
     
     print("1. Testing Mock LLM Client directly:")
@@ -35,11 +35,11 @@ async def main():
     print(f"Response content: {content[:200]}")
     print()
     
-    # Now test with AIBrowserAutomation
-    print("\n2. Testing with AIBrowserAutomation:")
+    # Now test with PlaywrightAI
+    print("\n2. Testing with PlaywrightAI:")
     print("-" * 50)
     
-    async with AIBrowserAutomation(headless=True, verbose=1) as browser:
+    async with PlaywrightAI(headless=True, verbose=1) as browser:
         page = await browser.page()
         await page.goto("https://example.com")
         
@@ -56,14 +56,14 @@ async def main():
             print("\nDebugging: Let's check what the handler is doing...")
             
             # Get the handler directly
-            from ai_browser_automation.handlers import ObserveHandler
+            from playwright_ai.handlers import ObserveHandler
             handler = ObserveHandler(
                 logger=browser.logger.child(component="page"),
                 llm_provider=browser.llm_provider
             )
             
             # Get page info
-            from ai_browser_automation.dom import get_clickable_elements
+            from playwright_ai.dom import get_clickable_elements
             clickable = await get_clickable_elements(page._page)
             print(f"\nActual clickable elements on page: {len(clickable)}")
             for elem in clickable[:3]:

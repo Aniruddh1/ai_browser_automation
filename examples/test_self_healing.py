@@ -1,6 +1,6 @@
 """Test self-healing functionality for act() method."""
 
-from ai_browser_automation import AIBrowserAutomation
+from playwright_ai import PlaywrightAI
 import asyncio
 import os
 import sys
@@ -18,7 +18,7 @@ async def test_self_healing():
     """Test self-healing functionality with intentionally failing actions."""
     print("Testing Self-Healing Functionality...\n")
 
-    async with AIBrowserAutomation(
+    async with PlaywrightAI(
         headless=False,
         verbose=2,  # More verbose logging
         model_name="gpt-4o-mini",
@@ -81,7 +81,7 @@ async def test_click_methods():
     """Test different click methods."""
     print("\n\nTesting Different Click Methods...\n")
     
-    async with AIBrowserAutomation(
+    async with PlaywrightAI(
         headless=False,
         verbose=1,
         model_name="gpt-4o-mini",

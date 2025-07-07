@@ -1,6 +1,6 @@
 """Test OpenAI provider with detailed output."""
 
-from ai_browser_automation import AIBrowserAutomation
+from playwright_ai import PlaywrightAI
 import asyncio
 import os
 import sys
@@ -27,7 +27,7 @@ async def test_openai_detailed():
     """Test OpenAI with detailed output."""
     print("Testing OpenAI Provider in Detail...\n")
 
-    async with AIBrowserAutomation(
+    async with PlaywrightAI(
         headless=False,
         verbose=1,  # Show some logs
         model_name="gpt-4o-mini",
@@ -60,7 +60,7 @@ async def test_openai_detailed():
 
         print("\n3. Testing Act with OpenAI:")
         print("-" * 50)
-        act_result = await page.act("Fill the search box with 'AIBrowserAutomation Python' and click the search button")
+        act_result = await page.act("Fill the search box with 'PlaywrightAI Python' and click the search button")
         print(f"Action result: {act_result.success}")
         print(f"Action type: {act_result.action}")
         print(f"Description: {act_result.description}")

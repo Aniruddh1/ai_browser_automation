@@ -1,6 +1,6 @@
 """Debug observe results."""
 
-from ai_browser_automation import AIBrowserAutomation
+from playwright_ai import PlaywrightAI
 import asyncio
 import os
 from dotenv import load_dotenv
@@ -13,7 +13,7 @@ async def debug_observe():
     """Debug what observe returns."""
     print("Debugging Observe Results...\n")
     
-    async with AIBrowserAutomation(
+    async with PlaywrightAI(
         headless=False,
         verbose=0,  # Less verbose for cleaner output
         model_name="gpt-4o-mini",

@@ -1,6 +1,6 @@
 """Test agent functionality."""
 
-from ai_browser_automation import AIBrowserAutomation
+from playwright_ai import PlaywrightAI
 import asyncio
 import os
 import sys
@@ -18,7 +18,7 @@ async def test_basic_agent():
     """Test basic agent functionality."""
     print("Testing Agent System...\n")
 
-    async with AIBrowserAutomation(
+    async with PlaywrightAI(
         headless=False,
         verbose=2,
         model_name="gpt-4o",
@@ -66,12 +66,12 @@ async def test_basic_agent():
         )
         
         # Execute with full options
-        from ai_browser_automation.types.agent import AgentExecuteOptions
+        from playwright_ai.types.agent import AgentExecuteOptions
         
         options = AgentExecuteOptions(
-            instruction="Navigate to GitHub and search for AIBrowserAutomation",
+            instruction="Navigate to GitHub and search for PlaywrightAI",
             max_steps=10,
-            context="Focus on finding the official AIBrowserAutomation repository"
+            context="Focus on finding the official PlaywrightAI repository"
         )
         
         result2 = await custom_agent.execute(options)
@@ -83,7 +83,7 @@ async def test_agent_error_handling():
     """Test agent error handling."""
     print("\n\nTesting Agent Error Handling...\n")
 
-    async with AIBrowserAutomation(
+    async with PlaywrightAI(
         headless=False,
         verbose=1,
         model_name="gpt-4o-mini",
@@ -106,7 +106,7 @@ async def test_agent_models():
     """Test different agent models."""
     print("\n\nTesting Different Agent Models...\n")
 
-    async with AIBrowserAutomation(
+    async with PlaywrightAI(
         headless=False,
         verbose=1,
         model_name="gpt-4o",

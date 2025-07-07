@@ -1,6 +1,6 @@
 """Test Google search with fill and click actions."""
 
-from ai_browser_automation import AIBrowserAutomation
+from playwright_ai import PlaywrightAI
 import asyncio
 import os
 import sys
@@ -16,9 +16,9 @@ load_dotenv()
 
 async def test_google_search():
     """Test Google search functionality."""
-    print("Testing Google Search with AIBrowserAutomation...\n")
+    print("Testing Google Search with PlaywrightAI...\n")
 
-    async with AIBrowserAutomation(
+    async with PlaywrightAI(
         headless=False,
         verbose=1,  # Show some logs
         model_name="gpt-4o-mini",
@@ -31,7 +31,7 @@ async def test_google_search():
         print("-" * 50)
 
         # Test 1: Fill with quoted text
-        fill_result = await page.act("Fill the search box with 'AIBrowserAutomation Python automation'")
+        fill_result = await page.act("Fill the search box with 'PlaywrightAI Python automation'")
         print(f"Fill result: {fill_result.success}")
         print(f"Action: {fill_result.action}")
         print(f"Description: {fill_result.description}")

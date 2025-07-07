@@ -1,4 +1,4 @@
-"""Basic test of AIBrowserAutomation Python implementation."""
+"""Basic test of PlaywrightAI Python implementation."""
 
 import asyncio
 import sys
@@ -7,21 +7,21 @@ from pathlib import Path
 # Add parent directory to path for development
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from ai_browser_automation import AIBrowserAutomation
+from playwright_ai import PlaywrightAI
 
 
 async def main():
-    """Test basic AIBrowserAutomation functionality."""
-    print("Testing AIBrowserAutomation Python implementation...")
+    """Test basic PlaywrightAI functionality."""
+    print("Testing PlaywrightAI Python implementation...")
     
     try:
-        # Create AIBrowserAutomation instance
-        async with AIBrowserAutomation(
+        # Create PlaywrightAI instance
+        async with PlaywrightAI(
             headless=False,
             verbose=2,
             enable_caching=True,
         ) as browser:
-            print(f"[OK] AIBrowserAutomation created with session ID: {browser.session_id}")
+            print(f"[OK] PlaywrightAI created with session ID: {browser.session_id}")
             
             # Initialize browser
             init_result = await browser.init()

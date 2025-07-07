@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # Load environment variables
 load_dotenv()
 
-from ai_browser_automation import AIBrowserAutomation
+from playwright_ai import PlaywrightAI
 
 
 async def test_with_api_key():
@@ -31,7 +31,7 @@ async def test_with_api_key():
     # Test with available providers
     if has_openai:
         print("Testing with OpenAI...")
-        async with AIBrowserAutomation(
+        async with PlaywrightAI(
             headless=True,
             verbose=0,
             model_name="gpt-4o-mini",
@@ -44,7 +44,7 @@ async def test_with_api_key():
     
     if has_anthropic:
         print("\nTesting with Anthropic...")
-        async with AIBrowserAutomation(
+        async with PlaywrightAI(
             headless=True,
             verbose=0,
             model_name="claude-3-haiku",
@@ -57,7 +57,7 @@ async def test_with_api_key():
     
     if has_google:
         print("\nTesting with Google AI...")
-        async with AIBrowserAutomation(
+        async with PlaywrightAI(
             headless=True,
             verbose=0,
             model_name="gemini-1.5-flash",
@@ -70,7 +70,7 @@ async def test_with_api_key():
     
     if not (has_openai or has_anthropic or has_google):
         print("No API keys found. Testing with mock client...")
-        async with AIBrowserAutomation(headless=True, verbose=0) as browser:
+        async with PlaywrightAI(headless=True, verbose=0) as browser:
             page = await browser.page()
             await page.goto("https://example.com")
             elements = await page.observe("Find links on the page")
@@ -81,7 +81,7 @@ async def test_mock_fallback():
     """Test that mock fallback works when no API key is provided."""
     print("\nTesting mock fallback (no API key)...")
     
-    async with AIBrowserAutomation(
+    async with PlaywrightAI(
         headless=True,
         verbose=1,
         model_name="gpt-4o"  # Will use mock since no API key

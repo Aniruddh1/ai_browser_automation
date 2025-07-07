@@ -1,6 +1,6 @@
 """Test OpenAI provider with detailed output."""
 
-from ai_browser_automation import AIBrowserAutomation
+from playwright_ai import PlaywrightAI
 import asyncio
 import os
 import sys
@@ -27,7 +27,7 @@ async def test_openai_detailed():
     """Test OpenAI with detailed output."""
     print("Testing OpenAI Provider in Detail...\n")
 
-    async with AIBrowserAutomation(
+    async with PlaywrightAI(
         headless=False,
         verbose=1,  # Show some logs
         model_name="gpt-4o-mini",

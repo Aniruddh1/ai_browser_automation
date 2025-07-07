@@ -5,7 +5,7 @@ import asyncio
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-from ai_browser_automation import AIBrowserAutomation, ObserveOptions
+from playwright_ai import PlaywrightAI, ObserveOptions
 
 # Load environment variables
 load_dotenv(Path(__file__).parent / '.env')
@@ -16,7 +16,7 @@ async def test_iframe_buttons():
     print("Testing iframe button detection...\n")
     
     # Initialize browser
-    browser = AIBrowserAutomation(
+    browser = PlaywrightAI(
         model_name="gpt-4o-mini",
         model_client_options={"api_key": os.environ.get("OPENAI_API_KEY")},
         headless=False,

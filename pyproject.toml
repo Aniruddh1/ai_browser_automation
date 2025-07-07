@@ -1,12 +1,12 @@
 [tool.poetry]
-name = "ai-browser-automation"
+name = "playwright-ai"
 version = "0.1.0"
 description = "AI-powered browser automation framework for Python"
-authors = ["AI Browser Automation Contributors"]
+authors = ["Playwright AI Contributors"]
 license = "MIT"
 readme = "README.md"
-homepage = "https://github.com/your-org/ai-browser-automation"
-repository = "https://github.com/your-org/ai-browser-automation"
+homepage = "https://github.com/your-org/playwright-ai"
+repository = "https://github.com/your-org/playwright-ai"
 keywords = ["browser", "automation", "ai", "playwright", "llm"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -87,10 +87,10 @@ ignore_missing_imports = true
 minversion = "7.0"
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-ra -q --strict-markers --cov=ai_browser_automation --cov-report=term-missing"
+addopts = "-ra -q --strict-markers --cov=playwright_ai --cov-report=term-missing"
 
 [tool.coverage.run]
-source = ["ai_browser_automation"]
+source = ["playwright_ai"]
 omit = ["*/tests/*", "*/examples/*"]
 
 [tool.coverage.report]

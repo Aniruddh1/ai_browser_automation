@@ -5,7 +5,7 @@ import asyncio
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-from ai_browser_automation import AIBrowserAutomation, ObserveOptions
+from playwright_ai import PlaywrightAI, ObserveOptions
 
 # Load environment variables
 load_dotenv(Path(__file__).parent / '.env')
@@ -16,7 +16,7 @@ async def test_iframe_debug():
     print("Testing iframe support...")
     
     # Initialize browser
-    browser = AIBrowserAutomation(
+    browser = PlaywrightAI(
         model_name="gpt-4o-mini",
         model_client_options={"api_key": os.environ.get("OPENAI_API_KEY")},
         headless=False,
@@ -50,14 +50,14 @@ async def test_iframe_debug():
         
         # Test 1: Get accessibility tree without frames
         print("\n1. Testing without iframe support...")
-        from ai_browser_automation.a11y import get_accessibility_tree
+        from playwright_ai.a11y import get_accessibility_tree
         tree_result = await get_accessibility_tree(page)
         print(f"   Tree nodes: {len(tree_result['tree'])}")
         print(f"   Iframes found: {len(tree_result.get('iframes', []))}")
         
         # Test 2: Get accessibility tree with frames
         print("\n2. Testing with iframe support...")
-        from ai_browser_automation.a11y import get_accessibility_tree_with_frames
+        from playwright_ai.a11y import get_accessibility_tree_with_frames
         try:
             frames_result = await get_accessibility_tree_with_frames(page)
             print(f"   Combined tree length: {len(frames_result.get('combinedTree', ''))}")

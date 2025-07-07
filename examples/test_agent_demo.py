@@ -1,6 +1,6 @@
 """Test agent with demo implementation."""
 
-from ai_browser_automation import AIBrowserAutomation
+from playwright_ai import PlaywrightAI
 import asyncio
 import os
 import sys
@@ -18,7 +18,7 @@ async def test_demo_agent_search():
     """Test demo agent performing search tasks."""
     print("Testing Demo Agent Implementation...\n")
 
-    async with AIBrowserAutomation(
+    async with PlaywrightAI(
         headless=False,
         verbose=2,
         model_name="gpt-4o",
@@ -56,7 +56,7 @@ async def test_demo_agent_navigation():
     """Test demo agent navigation tasks."""
     print("\n\nTesting Demo Agent Navigation...\n")
 
-    async with AIBrowserAutomation(
+    async with PlaywrightAI(
         headless=False,
         verbose=1,
         model_name="gpt-4o-mini",
@@ -70,7 +70,7 @@ async def test_demo_agent_navigation():
         agent = page.agent()
         
         # Execute navigation task
-        result = await agent.execute("Navigate to GitHub and search for AIBrowserAutomation")
+        result = await agent.execute("Navigate to GitHub and search for PlaywrightAI")
         
         print(f"Success: {result.success}")
         print(f"Message: {result.message}")
@@ -84,7 +84,7 @@ async def test_demo_agent_clicking():
     """Test demo agent click actions."""
     print("\n\nTesting Demo Agent Click Actions...\n")
 
-    async with AIBrowserAutomation(
+    async with PlaywrightAI(
         headless=False,
         verbose=1,
         model_name="gpt-4o",
@@ -111,7 +111,7 @@ async def test_demo_agent_form():
     """Test demo agent form filling."""
     print("\n\nTesting Demo Agent Form Filling...\n")
 
-    async with AIBrowserAutomation(
+    async with PlaywrightAI(
         headless=False,
         verbose=1,
         model_name="gpt-4o",
@@ -143,7 +143,7 @@ async def test_demo_agent_complex():
     """Test demo agent with complex instruction."""
     print("\n\nTesting Demo Agent Complex Task...\n")
 
-    async with AIBrowserAutomation(
+    async with PlaywrightAI(
         headless=False,
         verbose=1,
         model_name="gpt-4o",

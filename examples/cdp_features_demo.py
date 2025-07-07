@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-Demo of advanced CDP features in AI Browser Automation.
+Demo of advanced CDP features in Playwright AI.
 """
 
 import asyncio
-from ai_browser_automation import AIBrowserAutomation
+from playwright_ai import PlaywrightAI
 
 
 async def main():
     """Demonstrate CDP features."""
-    browser = AIBrowserAutomation(
+    browser = PlaywrightAI(
         headless=False,
         debug_dom=True
     )

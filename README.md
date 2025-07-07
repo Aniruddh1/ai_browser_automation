@@ -1,21 +1,21 @@
-# AI Browser Automation
+# Playwright AI
 
 AI-powered browser automation for Python, built on Playwright.
 
 ## Installation
 
 ```bash
-pip install ai-browser-automation
+pip install playwright-ai
 ```
 
 ## Quick Start
 
 ```python
-from ai_browser_automation import AIBrowserAutomation
+from playwright_ai import PlaywrightAI
 
 async def main():
-    async with AIBrowserAutomation() as aba:
-        page = await aba.page()
+    async with PlaywrightAI() as playwright_ai:
+        page = await playwright_ai.page()
         await page.goto("https://example.com")
         
         # Use natural language to interact
@@ -48,7 +48,7 @@ if __name__ == "__main__":
 
 ## How It Works
 
-AI Browser Automation uses Chrome DevTools Protocol (CDP) for advanced element identification:
+Playwright AI uses Chrome DevTools Protocol (CDP) for advanced element identification:
 
 1. **Accessibility Tree Analysis** - Gets semantic information about page elements
 2. **XPath Generation** - Creates precise XPath selectors for every element
@@ -69,7 +69,7 @@ Check out the `examples/` directory for:
 
 ## Documentation
 
-Full documentation available at [docs.ai-browser-automation.dev](https://docs.ai-browser-automation.dev)
+Full documentation available at [docs.playwright-ai.dev](https://docs.playwright-ai.dev)
 
 ## License
 

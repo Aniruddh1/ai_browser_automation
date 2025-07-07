@@ -1,6 +1,6 @@
 """Test agent with real tasks using act/observe functionality."""
 
-from ai_browser_automation import AIBrowserAutomation
+from playwright_ai import PlaywrightAI
 import asyncio
 import os
 import sys
@@ -18,7 +18,7 @@ async def test_agent_youtube_search():
     """Test agent performing YouTube search task."""
     print("Testing Agent with YouTube Search Task...\n")
 
-    async with AIBrowserAutomation(
+    async with PlaywrightAI(
         headless=False,
         verbose=2,
         model_name="gpt-4o",
@@ -36,7 +36,7 @@ async def test_agent_youtube_search():
         await page.goto("https://www.youtube.com")
         print(f"Navigated to: {page.url}")
         
-        print("\n2. Simulating agent task - Search for 'AIBrowserAutomation automation':")
+        print("\n2. Simulating agent task - Search for 'PlaywrightAI automation':")
         print("-" * 50)
         
         # This is what the agent would do internally
@@ -50,7 +50,7 @@ async def test_agent_youtube_search():
             print("Clicked on search box")
             
             # Step 3: Type search query
-            await page.act("Type 'AIBrowserAutomation automation tutorial'")
+            await page.act("Type 'PlaywrightAI automation tutorial'")
             print("Typed search query")
             
             # Step 4: Submit search
@@ -75,7 +75,7 @@ async def test_agent_google_search():
     """Test agent performing Google search and navigation."""
     print("\n\nTesting Agent with Google Search and Navigation...\n")
 
-    async with AIBrowserAutomation(
+    async with PlaywrightAI(
         headless=False,
         verbose=1,
         model_name="gpt-4o-mini",
@@ -135,7 +135,7 @@ async def test_agent_form_filling():
     """Test agent filling out a form."""
     print("\n\nTesting Agent with Form Filling...\n")
 
-    async with AIBrowserAutomation(
+    async with PlaywrightAI(
         headless=False,
         verbose=1,
         model_name="gpt-4o",
@@ -175,7 +175,7 @@ async def test_agent_workflow():
     """Test a complete workflow that an agent might perform."""
     print("\n\nTesting Complete Agent Workflow...\n")
 
-    async with AIBrowserAutomation(
+    async with PlaywrightAI(
         headless=False,
         verbose=1,
         model_name="gpt-4o",

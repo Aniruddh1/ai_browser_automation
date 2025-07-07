@@ -5,8 +5,8 @@ Test script to verify CDP and DOM alignment with TypeScript implementation.
 
 import asyncio
 import os
-from ai_browser_automation import AIBrowserAutomation
-from ai_browser_automation.a11y.utils_v2 import (
+from playwright_ai import PlaywrightAI
+from playwright_ai.a11y.utils_v2 import (
     get_accessibility_tree,
     build_backend_id_maps,
 )
@@ -16,7 +16,7 @@ async def test_cdp_session_management():
     """Test CDP session management features."""
     print("\n=== Testing CDP Session Management ===")
     
-    browser = AIBrowserAutomation(
+    browser = PlaywrightAI(
         model_name="gpt-4o-mini",
         model_client_options={"api_key": os.getenv("OPENAI_API_KEY")},
         headless=False,
@@ -65,7 +65,7 @@ async def test_dom_scripts():
     """Test DOM script injection and XPath generation."""
     print("\n=== Testing DOM Scripts ===")
     
-    browser = AIBrowserAutomation(
+    browser = PlaywrightAI(
         model_name="gpt-4o-mini",
         model_client_options={"api_key": os.getenv("OPENAI_API_KEY")},
         headless=False,
@@ -81,7 +81,7 @@ async def test_dom_scripts():
         await page._wait_for_settled_dom()
         
         # Inject DOM scripts
-        from ai_browser_automation.dom.scripts import DOM_SCRIPTS
+        from playwright_ai.dom.scripts import DOM_SCRIPTS
         await page.evaluate(DOM_SCRIPTS)
         print("✓ DOM scripts injected")
         
@@ -123,7 +123,7 @@ async def test_accessibility_tree():
     """Test accessibility tree building."""
     print("\n=== Testing Accessibility Tree ===")
     
-    browser = AIBrowserAutomation(
+    browser = PlaywrightAI(
         model_name="gpt-4o-mini",
         model_client_options={"api_key": os.getenv("OPENAI_API_KEY")},
         headless=False,
@@ -167,7 +167,7 @@ async def test_observe_method():
     """Test the observe method with new implementation."""
     print("\n=== Testing Observe Method ===")
     
-    browser = AIBrowserAutomation(
+    browser = PlaywrightAI(
         model_name="gpt-4o-mini",
         model_client_options={"api_key": os.getenv("OPENAI_API_KEY")},
         headless=False,

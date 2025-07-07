@@ -6,8 +6,8 @@ Tests DOM script injection, scrollable elements, frame handling, and observe fun
 
 import asyncio
 import os
-from ai_browser_automation import AIBrowserAutomation
-from ai_browser_automation.types import ObserveOptions
+from playwright_ai import PlaywrightAI
+from playwright_ai.types import ObserveOptions
 
 
 async def test_typescript_alignment():
@@ -15,7 +15,7 @@ async def test_typescript_alignment():
     print("Starting TypeScript alignment test...")
     
     # Initialize browser
-    browser = AIBrowserAutomation(
+    browser = PlaywrightAI(
         model_name="gpt-4o-mini",
         headless=False
     )

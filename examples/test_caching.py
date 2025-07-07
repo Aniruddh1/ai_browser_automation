@@ -1,6 +1,6 @@
 """Test caching functionality."""
 
-from ai_browser_automation import AIBrowserAutomation
+from playwright_ai import PlaywrightAI
 import asyncio
 import os
 import sys
@@ -19,7 +19,7 @@ async def test_caching():
     """Test caching functionality with repeated actions."""
     print("Testing Caching System...\n")
 
-    async with AIBrowserAutomation(
+    async with PlaywrightAI(
         headless=False,
         verbose=2,  # More logs to see caching
         enable_caching=True,  # Enable caching
@@ -109,7 +109,7 @@ async def test_caching_disabled():
     """Test that caching can be disabled."""
     print("\n\nTesting with caching disabled...\n")
 
-    async with AIBrowserAutomation(
+    async with PlaywrightAI(
         headless=False,
         verbose=1,
         enable_caching=False,  # Disable caching

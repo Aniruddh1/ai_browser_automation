@@ -1,4 +1,4 @@
-"""Setup script for AI Browser Automation."""
+"""Setup script for Playwright AI."""
 
 from setuptools import setup, find_packages
 
@@ -7,13 +7,13 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
-    name="ai-browser-automation",
+    name="playwright-ai",
     version="0.1.0",
-    author="AI Browser Automation Contributors",
+    author="Playwright AI Contributors",
     description="AI-powered browser automation for Python",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/your-org/ai-browser-automation",
+    url="https://github.com/your-org/playwright-ai",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 3 - Alpha",

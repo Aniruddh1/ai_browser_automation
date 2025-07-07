@@ -9,7 +9,7 @@ from typing import List, Optional
 # Add parent directory to path for development
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from ai_browser_automation import AIBrowserAutomation
+from playwright_ai import PlaywrightAI
 
 
 class WebsiteInfo(BaseModel):
@@ -23,16 +23,16 @@ class WebsiteInfo(BaseModel):
 
 async def main():
     """Test handler functionality."""
-    print("Testing AIBrowserAutomation handlers...")
+    print("Testing PlaywrightAI handlers...")
     
     try:
-        # Create AIBrowserAutomation instance
-        async with AIBrowserAutomation(
+        # Create PlaywrightAI instance
+        async with PlaywrightAI(
             headless=False,
             verbose=2,
             enable_caching=True,
         ) as browser:
-            print(f"\n[OK] AIBrowserAutomation initialized")
+            print(f"\n[OK] PlaywrightAI initialized")
             
             # Create a page
             page = await browser.page()

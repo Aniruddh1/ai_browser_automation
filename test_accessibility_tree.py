@@ -2,8 +2,8 @@
 """Test accessibility tree extraction directly."""
 
 import asyncio
-from ai_browser_automation import AIBrowserAutomation
-from ai_browser_automation.a11y import get_accessibility_tree
+from playwright_ai import PlaywrightAI
+from playwright_ai.a11y import get_accessibility_tree
 
 
 async def test_accessibility_tree():
@@ -11,7 +11,7 @@ async def test_accessibility_tree():
     print("Testing accessibility tree extraction...")
     
     # Initialize browser
-    browser = AIBrowserAutomation(
+    browser = PlaywrightAI(
         headless=False,
         verbose=2
     )

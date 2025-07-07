@@ -5,8 +5,8 @@ import asyncio
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-from ai_browser_automation import AIBrowserAutomation, ObserveOptions
-from ai_browser_automation.a11y import get_accessibility_tree_with_frames
+from playwright_ai import PlaywrightAI, ObserveOptions
+from playwright_ai.a11y import get_accessibility_tree_with_frames
 
 # Load environment variables
 load_dotenv(Path(__file__).parent / '.env')
@@ -17,7 +17,7 @@ async def test_iframe_tree_content():
     print("Testing iframe tree content...")
     
     # Initialize browser
-    browser = AIBrowserAutomation(
+    browser = PlaywrightAI(
         model_name="gpt-4o-mini",
         model_client_options={"api_key": os.environ.get("OPENAI_API_KEY")},
         headless=False,
@@ -66,9 +66,9 @@ async def test_iframe_tree_content():
         
         # Use observe with iframes to see what LLM gets
         print("\nRunning observe with iframes=True...")
-        from ai_browser_automation.handlers.observe import ObserveHandler
+        from playwright_ai.handlers.observe import ObserveHandler
         handler = ObserveHandler(
-            ai_browser_automation=browser,
+            playwright_ai=browser,
             ai_browser_automation_page=page,
             logger=browser._logger,
             options={}

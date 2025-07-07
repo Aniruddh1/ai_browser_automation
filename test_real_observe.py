@@ -5,7 +5,7 @@ import asyncio
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-from ai_browser_automation import AIBrowserAutomation
+from playwright_ai import PlaywrightAI
 
 # Load environment variables
 load_dotenv(Path(__file__).parent / '.env')
@@ -16,7 +16,7 @@ async def test_real_observe():
     print("Testing real observe functionality...")
     
     # Initialize browser
-    browser = AIBrowserAutomation(
+    browser = PlaywrightAI(
         model_name="gpt-4o-mini",
         model_client_options={"api_key": os.environ.get("OPENAI_API_KEY")},
         headless=False,
@@ -46,7 +46,7 @@ async def test_real_observe():
         await page.wait_for_timeout(1000)
         
         # Get the accessibility tree directly first
-        from ai_browser_automation.a11y import get_accessibility_tree
+        from playwright_ai.a11y import get_accessibility_tree
         tree_result = await get_accessibility_tree(page)
         print(f"\nAccessibility tree has {len(tree_result['tree'])} nodes")
         print("\nSimplified tree:")

@@ -1,5 +1,5 @@
 """
-Demonstration of CDP and XPath functionality in AIBrowserAutomation.
+Demonstration of CDP and XPath functionality in PlaywrightAI.
 
 This example shows:
 1. How CDP builds accessibility trees
@@ -7,7 +7,7 @@ This example shows:
 3. How elements are identified and clicked
 """
 
-from ai_browser_automation import AIBrowserAutomation
+from playwright_ai import PlaywrightAI
 import asyncio
 import os
 from dotenv import load_dotenv
@@ -21,7 +21,7 @@ async def demonstrate_cdp():
     print("=== CDP and XPath Demonstration ===\n")
     
     # Initialize with verbose logging to see CDP in action
-    async with AIBrowserAutomation(
+    async with PlaywrightAI(
         headless=False,
         verbose=2,  # Verbose logging shows CDP details
         model_name="gpt-4o-mini",
@@ -70,7 +70,7 @@ async def demonstrate_cdp():
         print("\n5. CDP Internals (for debugging):")
         
         # Get accessibility tree directly
-        from ai_browser_automation.a11y import get_accessibility_tree
+        from playwright_ai.a11y import get_accessibility_tree
         
         try:
             nodes, xpath_map, url_map = await get_accessibility_tree(page)

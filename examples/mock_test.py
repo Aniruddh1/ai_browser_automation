@@ -7,14 +7,14 @@ from pathlib import Path
 # Add parent directory to path for development
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from ai_browser_automation.llm import MockLLMClient
-from ai_browser_automation.types import LLMMessage
-from ai_browser_automation.utils.logger import configure_logging, AIBrowserAutomationLogger
+from playwright_ai.llm import MockLLMClient
+from playwright_ai.types import LLMMessage
+from playwright_ai.utils.logger import configure_logging, PlaywrightAILogger
 
 
 async def main():
     """Test mock LLM client."""
-    logger = AIBrowserAutomationLogger(configure_logging(2), 2)
+    logger = PlaywrightAILogger(configure_logging(2), 2)
     client = MockLLMClient("gpt-4o", None, logger)
     
     print("Testing mock LLM client responses...\n")

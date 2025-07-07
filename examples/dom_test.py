@@ -7,8 +7,8 @@ from pathlib import Path
 # Add parent directory to path for development
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from ai_browser_automation import AIBrowserAutomation
-from ai_browser_automation.dom import get_clickable_elements, get_input_elements, get_page_text
+from playwright_ai import PlaywrightAI
+from playwright_ai.dom import get_clickable_elements, get_input_elements, get_page_text
 
 
 async def main():
@@ -16,8 +16,8 @@ async def main():
     print("Testing DOM utilities...")
     
     try:
-        # Create AIBrowserAutomation instance
-        async with AIBrowserAutomation(headless=False, verbose=1) as browser:
+        # Create PlaywrightAI instance
+        async with PlaywrightAI(headless=False, verbose=1) as browser:
             # Create a page
             page = await browser.page()
             

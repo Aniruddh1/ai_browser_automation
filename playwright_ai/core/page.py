@@ -668,9 +668,44 @@ if (!window.__aiBrowserAutomationInjected) {{
         
         timeout_task = asyncio.create_task(timeout_guard())
         
+        # Also set up DOM mutation monitoring in parallel
+        dom_settle_task = None
         try:
-            # Wait for done event
-            await done_event.wait()
+            # Check if DOM settle function is available
+            has_dom_settle = await self._page.evaluate("() => typeof window.waitForDomSettle === 'function'")
+            if has_dom_settle:
+                # Start DOM mutation monitoring
+                dom_settle_task = asyncio.create_task(
+                    self._page.evaluate("() => window.waitForDomSettle()")
+                )
+                self._logger.debug("page:dom", "Started DOM mutation monitoring")
+        except Exception as e:
+            self._logger.debug("page:dom", f"Could not start DOM mutation monitoring: {e}")
+        
+        try:
+            # Wait for either network quiet OR DOM mutations to stop
+            if dom_settle_task:
+                # Wait for both network and DOM to settle
+                network_done_task = asyncio.create_task(done_event.wait())
+                done_tasks, pending_tasks = await asyncio.wait(
+                    [network_done_task, dom_settle_task],
+                    return_when=asyncio.ALL_COMPLETED,
+                    timeout=timeout / 1000
+                )
+                
+                # Cancel any pending tasks
+                for task in pending_tasks:
+                    task.cancel()
+                    
+                self._logger.debug(
+                    "page:dom", 
+                    "DOM settled",
+                    network_settled=network_done_task in done_tasks,
+                    dom_mutations_settled=dom_settle_task in done_tasks
+                )
+            else:
+                # Just wait for network if DOM monitoring not available
+                await done_event.wait()
         finally:
             # Clean up
             client.remove_listener('Network.requestWillBeSent', on_request_will_be_sent)

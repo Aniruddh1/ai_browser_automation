@@ -39,6 +39,9 @@ class ExtractHandler(BaseHandler[ExtractResult]):
             instruction=options.instruction,
         )
         
+        # Wait for DOM to settle before extracting (matching observe handler)
+        await page._wait_for_settled_dom()
+        
         # Get page content based on content type
         page_content = await self._get_page_content(page, options.content_type)
         

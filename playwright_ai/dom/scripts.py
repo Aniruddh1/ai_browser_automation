@@ -477,5 +477,45 @@ window.__frameInfo = {
     isMainFrame: !window.frameElement
 };
 
+// DOM mutation-based settling function
+window.waitForDomSettle = async function() {
+    return new Promise((resolve) => {
+        const createTimeout = () => {
+            return setTimeout(() => {
+                resolve();
+            }, 2000); // 2 seconds of no mutations
+        };
+        
+        let timeout = createTimeout();
+        
+        const observer = new MutationObserver(() => {
+            clearTimeout(timeout);
+            timeout = createTimeout();
+        });
+        
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            characterData: true
+        });
+        
+        // Also resolve after max 10 seconds to prevent infinite waiting
+        const maxTimeout = setTimeout(() => {
+            observer.disconnect();
+            resolve();
+        }, 10000);
+        
+        // Clean up when done
+        const originalResolve = resolve;
+        resolve = () => {
+            clearTimeout(timeout);
+            clearTimeout(maxTimeout);
+            observer.disconnect();
+            originalResolve();
+        };
+    });
+};
+
 console.log('PlaywrightAI DOM scripts injected successfully');
 """

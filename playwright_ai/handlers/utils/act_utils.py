@@ -559,7 +559,16 @@ async def handle_possible_page_navigation(
         
         # Wait for network to be idle (similar to DOM settling)
         try:
-            await page.wait_for_load_state("networkidle", timeout=min(timeout, 5000))
+            # Try to use our enhanced DOM settling if available
+            if hasattr(page, '_wait_for_settled_dom'):
+                logger.debug(
+                    "action",
+                    "Using enhanced DOM settling (network + mutations)"
+                )
+                await page._wait_for_settled_dom(timeout_ms=min(timeout, 30000))
+            else:
+                # Fallback to Playwright's networkidle
+                await page.wait_for_load_state("networkidle", timeout=min(timeout, 5000))
         except Exception:
             # Network might not become idle, that's ok
             pass

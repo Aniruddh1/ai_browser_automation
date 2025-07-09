@@ -85,6 +85,9 @@ class ActHandler(BaseHandler[ActResult]):
             }
         })
         
+        # Wait for DOM to settle before acting (matching observe handler)
+        await page._wait_for_settled_dom()
+        
         try:
             # If we have an ObserveResult, execute directly
             if isinstance(action_or_options, ObserveResult):
